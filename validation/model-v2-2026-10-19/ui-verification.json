@@ -1,0 +1,22 @@
+{
+  "viewport": [
+    901,
+    954
+  ],
+  "mobile": [
+    390,
+    844
+  ],
+  "checks": [
+    "six requested removals",
+    "profile and FTP protocol creation",
+    "known LT1/LT2 display",
+    "CSV and JSON model/version",
+    "print report",
+    "history search",
+    "raw storage unchanged by analysis/export",
+    "mobile layout",
+    "portable HTML"
+  ],
+  "pageErrors": []
+}

@@ -18,7 +18,7 @@ test('recovers two known slope changes, not fixed concentration crossings',()=>{
  assert.equal(a.lt1.lactate,1);assert.equal(a.lt2.lactate,2.5);
  assert.deepEqual(plain(a.lt1.between),[150,200]);
  assert.deepEqual(plain(a.lt2.between),[225,275]);
- assert.equal(a.method,'segmented-linear-v1');assert.equal(a.fit.length,4);
+ assert.equal(a.method,'turnpoint-model-selection-v2');assert.equal(a.fit.length,4);
  assert.ok(!('fixed2' in a)&&!('fixed4' in a)&&!('delta05' in a));
 });
 test('translating the entire curve above 4 mmol/L preserves breakpoint power',()=>{
@@ -47,14 +47,16 @@ test('one supported turn does not manufacture LT2',()=>{
 test('insufficient data leaves results empty instead of falling back to 2/4 mmol',()=>{
  const a=analysis.analyze(stages([1,2,3,4,5]));
  assert.equal(a.lt1,null);assert.equal(a.lt2,null);assert.match(a.reason,/至少需要 6/);
- const b=analysis.analyze(stages(one).slice(0,8));
- assert.equal(b.lt1.power,175);assert.equal(b.lt2,null);assert.match(b.lt2Reason,/至少 9/);
+ const b=analysis.analyze(stages([1,1,1,1,2,3,4]));
+ assert.equal(b.lt1.power,175);assert.equal(b.lt2,null);assert.match(b.lt2Reason,/至少 8/);
 });
-test('supports the documented six-point and nine-point minimums',()=>{
+test('requires enough independent support rather than filling every eligible result',()=>{
  const a=analysis.analyze(stages([1,1,1,2,3,4]));
  assert.equal(a.lt1.power,150);assert.equal(a.lt2,null);
  const b=analysis.analyze(stages([1,1,1,1.4,1.8,2.2,3.6,5,6.4]));
  assert.equal(b.lt1.power,150);assert.equal(b.lt2.power,225);
+ const c=analysis.analyze(stages([1,1,1,1.5,2,4,6,8]));
+ assert.equal(c.lt2,null);assert.match(c.reason,/单个样本/);
 });
 test('flat, noisy, linear and declining curves do not force turnpoints',()=>{
  for(const values of [Array(10).fill(1),[1,1.1,.9,1,1.1,1,.9,1,1,1.1],Array.from({length:10},(_,i)=>1+i*.5),Array.from({length:10},(_,i)=>3-i*.2)]){
@@ -95,8 +97,29 @@ test('analysis does not mutate raw data and updates its cache after edits',()=>{
 test('CSV exports the actual method and estimated thresholds, leaving missing values blank',()=>{
  const session={id:'fixture',type:'lactate-step',name:'Fixture',createdAt:'2026-10-19',protocol:{},stages:stages(two)};
  const csv=core.sessionCsv(session);assert.match(csv,/"analysis_method","lt1_power_w","lt2_power_w"/);
- assert.match(csv,/"segmented-linear-v1","175","250"/);
- session.stages=stages([1,2,3]);assert.match(core.sessionCsv(session),/"segmented-linear-v1","",""/);
+ assert.match(csv,/"turnpoint-model-selection-v2","175","250"/);
+ session.stages=stages([1,2,3]);assert.match(core.sessionCsv(session),/"turnpoint-model-selection-v2","",""/);
+});
+test('a supported exponential onset yields LT1 without inventing an LT2',()=>{
+ const input=Array.from({length:10},(_,i)=>({power:100+25*i,lactate:Math.exp(Math.max(0,100+25*i-175)/65),quality:'normal'}));
+ const a=analysis.analyze(input);
+ assert.ok(a.lt1&&Math.abs(a.lt1.power-175)<=6.25);
+ assert.equal(a.lt2,null);assert.equal(a.model,'exponential-onset');
+ assert.ok(a.fit.length>10);
+ for(const offset of [1,4]){
+  const shifted=analysis.analyze(input.map(s=>({...s,lactate:s.lactate+offset})));
+  assert.equal(shifted.lt1.power,a.lt1.power);assert.equal(shifted.lt2,null);
+ }
+});
+test('continuous exponential growth and smooth curvature do not create a baseline onset',()=>{
+ for(const count of [6,8,10,15])for(const value of [x=>Math.exp(2*x),x=>1+6*x*x]){
+  const input=Array.from({length:count},(_,i)=>({power:100+i*25,lactate:value(i/(count-1)),quality:'normal'}));
+  const a=analysis.analyze(input);assert.equal(a.lt1,null);assert.equal(a.lt2,null);
+ }
+});
+test('a short high-load tail cannot turn the later rise into LT1',()=>{
+ const a=analysis.analyze(stages(two).slice(0,8));
+ assert.equal(a.lt1,null);assert.equal(a.lt2,null);
 });
 test('empty readings and excluded records do not count as valid measurements',()=>{
  const input=stages([null,'',undefined,1,1,1]);input[5].quality='exclude';

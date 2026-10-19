@@ -21,8 +21,7 @@ Lab.ui={toast};
 function renderSidebar(){
  const nav=[['workbench','测试工作台','activity'],['analysis','结果分析','chart'],['history','历史记录','history']];
  $('#sidebar').innerHTML=`<a class="brand" href="#" data-action="go-workbench"><div class="brand-mark">${icon('activity')}</div><div class="brand-name">PaceLab<span style="color:#c5ef87">.</span></div></a>
- ${nav.map(([v,label,ic])=>`<button class="nav-link ${view===v?'active':''}" data-action="view" data-view="${v}">${icon(ic)}<span>${label}</span>${v==='history'?`<span class="tiny-pill">${db.sessions.length}</span>`:''}</button>`).join('')}
- <div class="sidebar-bottom"><button data-action="backup">${icon('download')}　备份全部数据</button></div>`;
+ ${nav.map(([v,label,ic])=>`<button class="nav-link ${view===v?'active':''}" data-action="view" data-view="${v}">${icon(ic)}<span>${label}</span>${v==='history'?`<span class="tiny-pill">${db.sessions.length}</span>`:''}</button>`).join('')}`;
 }
 function renderTopbar(){
  $('#topbar').innerHTML=`<div style="display:flex;align-items:center;gap:15px;min-width:0"><button class="btn btn-ghost btn-icon menu-button" aria-label="打开菜单" data-action="toggle-menu">${icon('menu')}</button><div class="breadcrumbs"><b>乳酸阶梯测试</b></div></div><div class="top-actions">${btn('import',icon('upload')+' 导入 JSON','btn btn-sm')}${btn('new',icon('plus')+' 新建测试','btn btn-sm btn-dark')}</div>`;
@@ -76,7 +75,7 @@ function recordTable(s){
  </div>`;
 }
 function quickChart(s){const a=A.analyze(s.stages);
- return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span>LT1 / LT2 拐点估计</span></div></div>`;
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span>LT1 / LT2 拐点估计</span></div></div>`;
 }
 function renderWorkbench(){
  const s=active();
@@ -86,19 +85,18 @@ function renderWorkbench(){
 }
 
 function renderAnalysis(){
- const s=active();const act=heading('结果分析',s?`${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- if(!s)return act+C.emptyState('暂无测试','','chart',btn('new',icon('plus')+' 新测试','btn btn-primary'));
+ const s=active();const act=heading('结果分析',s?`${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:'');
+ if(!s)return act+C.emptyState('暂无测试','','chart');
  const a=A.analyze(s.stages);
  const markers=turnpointMarkers(a);
  return `${act}<div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(s.execution.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}
- ${introStats(s,a)}<div class="analysis-method">连续分段线性回归 · LT1 为首次斜率增加，LT2 为再次增加 · 阴影为定位区间</div>
- <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
+ ${introStats(s,a)}
+ <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">心率 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'hr')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>阶段心率</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">RPE（0–10）× 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'rpe')}</div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>分析方法</small><strong>分段线性回归</strong></div><div class="report-detail"><small>最高有效乳酸</small><strong>${a.peak!==null?fmt(a.peak,1)+' mmol/L':'—'}</strong></div><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
+ <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
 }
 function renderHistory(){
- const actions=`${btn('import',icon('upload')+' 导入','btn')}${btn('backup',icon('download')+' 全部备份','btn btn-dark')}`;
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
  let compare='';
  if(db.sessions.filter(s=>A.analyze(s.stages).validCount>0).length>=2){
@@ -107,8 +105,8 @@ function renderHistory(){
   <div class="comparison-picker">${candidates.slice(0,18).map((s,i)=>`<label title="${esc(s.name)}"><input type="checkbox" data-compare-id="${esc(s.id)}" ${compareIds.includes(s.id)?'checked':''}> <span>${esc(s.name)} · ${dateText(s.createdAt).slice(0,10)}</span></label>`).join('')}</div>
   ${compareIds.length>=2?`<div class="chart-surface" style="height:345px">${Charts.svg({series:compareIds.map(id=>{const s=db.sessions.find(x=>x.id===id);return {label:s?.name||'未知测试',points:A.analyze(s?.stages||[]).points};}),minY:0,yAxisLabel:'血乳酸 / mmol/L'})}</div><div class="comparison-legend">${compareIds.map((id,i)=>{const s=db.sessions.find(x=>x.id===id);return `<span><i class="legend-dot" style="background:${Charts.palette[i]}"></i>${esc(s?.name||'测试')}</span>`}).join('')}</div>`:''}</div>`;
  }
- return `${heading('历史记录',actions)}
-  ${db.sessions.length?`<div class="card card-pad" style="margin-bottom:16px"><div class="details" style="margin-bottom:0"><div><div class="card-title">已保存 ${db.sessions.length} 次测试</div></div><input class="form-control" style="max-width:250px" id="history-search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>${compare}`:
+ return `${heading('历史记录')}
+  ${db.sessions.length?`<div class="history-toolbar"><input class="form-control" id="history-search" type="search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>${compare}`:
   C.emptyState('暂无历史记录','','history',btn('new',icon('plus')+' 创建测试','btn btn-primary'))}`;
 }
 function renderHistoryItems(items){
@@ -262,9 +260,8 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
 function duplicate(source){const s=source||active();if(!s)return;
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,model:a.model,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
-function backup(){C.download(JSON.stringify({schemaVersion:1,exportType:'backup',exportedAt:new Date().toISOString(),sessions:db.sessions.map(exportedSession)},null,2),'PaceLab_全部测试备份_'+new Date().toISOString().slice(0,10)+'.json','application/json;charset=utf-8')}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
@@ -296,7 +293,7 @@ function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell
  <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['LT1 拐点估计',a.lt1?fmt(a.lt1.power)+' W':'—'],['LT2 拐点估计',a.lt2?fmt(a.lt2.power)+' W':'—'],['最高有效乳酸',a.peak!==null?fmt(a.peak,1)+' mmol/L':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
  <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}
  <h2>阶段记录明细</h2><table class="data-table"><thead><tr><th>阶段</th><th>功率</th><th>时长</th><th>乳酸</th><th>心率</th><th>RPE</th><th>质量</th><th>备注</th></tr></thead><tbody>${s.stages.map((st,i)=>`<tr>${printCell(i+1)}${printCell(st.power+' W')}${printCell(st.durationSec/60+' min')}${printCell(st.lactate)}${printCell(st.hr)}${printCell(st.rpe)}${printCell(st.quality==='normal'?'正常':st.quality==='exclude'?'排除':'可疑')}${printCell(st.notes)}</tr>`).join('')}</tbody></table>
- <p>方法：连续分段线性回归（${esc(a.method)}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
+ <p>方法：拐点模型比较（${esc(a.method)}；${esc(a.model||'未选定模型')}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
  window.print();
 }
 function createFromForm(){
@@ -341,7 +338,6 @@ function handleClick(event){
   case 'view-analysis':setView('analysis');break;
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
   case 'export-json':downloadJson(getSession());break;
-  case 'backup':backup();break;
   case 'import':$('#import-file').click();break;
   case 'print':printReport(getSession());break;
   case 'delete':{
