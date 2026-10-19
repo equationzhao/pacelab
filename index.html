@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1923">
+  <meta name="description" content="PaceLab 乳酸阶梯测试：计时、数据记录与曲线分析。">
+  <title>PaceLab | 乳酸阶梯测试</title>
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar" aria-label="主导航"></aside>
+    <main class="main">
+      <header class="topbar" id="topbar"></header>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-stack" class="toast-stack" role="status" aria-live="polite"></div>
+  <input type="file" id="import-file" accept=".json,application/json" hidden>
+  <div id="print-report" class="print-report"></div>
+  <script src="src/core.js"></script>
+  <script src="src/tests.js"></script>
+  <script src="src/analysis.js"></script>
+  <script src="src/charts.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
