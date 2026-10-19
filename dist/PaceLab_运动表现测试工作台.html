@@ -22,6 +22,8 @@
 .protocol-modal{width:min(740px,100%);max-height:94dvh}.modal-step{font-size:11px;color:#72858c;margin-bottom:8px;font-weight:650}.form-section{border:0;padding:0;margin:0;min-width:0}.form-section-title{font-size:13px;font-weight:750;margin-bottom:12px;color:#41565e;float:left;width:100%}.athlete-summary{font-size:12px;color:#536f66;background:#f1f7ef;border-radius:10px;padding:12px 14px;margin-bottom:22px}.athlete-line{font-size:12px;color:#72858c;margin:-4px 0 20px;overflow-wrap:anywhere}.goal-options{clear:both}.goal-options .preset{min-height:90px}.goal-options .preset strong{line-height:1.6}.protocol-totals{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;padding:16px;background:#f5f8f5;border-radius:12px}.protocol-totals span{display:block;font-size:11px;color:#7b8e91}.protocol-totals strong{display:block;font-size:24px;margin-top:5px;letter-spacing:-.5px}.sampling-options{border-top:1px solid #e9efeb;padding-top:20px}.modal-back{margin-right:auto}.modal-foot{align-items:center}.print-report .athlete-line{margin:8px 0;color:#555}
 @media(max-width:800px){.protocol-modal .form-grid{grid-template-columns:1fr 1fr}.protocol-modal .form-group.span2{grid-column:span 2}.goal-options{grid-template-columns:1fr}.goal-options .preset{min-height:0;display:flex;gap:10px;justify-content:space-between;align-items:center}.goal-options .preset strong{margin:0}.goal-options .preset span{white-space:nowrap}.modal-back .btn{padding:8px;font-size:11px}.protocol-modal .modal-foot{gap:6px}.protocol-modal .modal-foot>.btn{padding:10px 12px}}
 
+.analysis-method{font-size:12px;color:#687f83;line-height:1.7;margin:-4px 0 20px}.stat-foot{overflow-wrap:anywhere}.print-report .athlete-line{font-size:11px}
+
 </style>
 </head>
 <body>
@@ -92,7 +94,7 @@
   const write=(v)=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(v));return true}catch{window.Lab?.ui?.toast?.('浏览器存储失败，请导出 JSON 备份数据');return false}};
   const download=(content,name,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)};
   const csvCell=(x)=>{const v=String(x??'');const safe=/^[=+@\-\t\r]/.test(v)?"'"+v:v;return `"${safe.replace(/"/g,'""')}"`};
-  const sessionCsv=(s)=>{const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','note','athlete_name','athlete_sex','athlete_age','ftp_w','test_goal','protocol_preset'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',s.protocol.goal??'',s.protocol.preset??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
+  const sessionCsv=(s)=>{const analysis=Lab.analysis.analyze(s.stages);const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','note','athlete_name','athlete_sex','athlete_age','ftp_w','test_goal','protocol_preset','analysis_method','lt1_power_w','lt2_power_w'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',s.protocol.goal??'',s.protocol.preset??'',analysis.method,analysis.lt1?.power??'',analysis.lt2?.power??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
   Lab.core={esc,attr,n,fmt,dateText,uid,clamp,round,icon,emptyState,read,write,download,sessionCsv,STORAGE_KEY};
 })();
 
@@ -160,33 +162,137 @@
 (function(){
  'use strict';
  const Lab=window.Lab;
- const {round}=Lab.core;
+ const METHOD='segmented-linear-v1';
+ // These are conservative model-selection rules, not physiological cut-offs.
+ const RESOLUTION=.1,MIN_BIC_GAIN=6;
+ function solve(matrix,vector){
+  const rows=matrix.map((row,i)=>[...row,vector[i]]),n=vector.length;
+  for(let c=0;c<n;c++){
+   let pivot=c;
+   for(let r=c+1;r<n;r++)if(Math.abs(rows[r][c])>Math.abs(rows[pivot][c]))pivot=r;
+   if(Math.abs(rows[pivot][c])<1e-10)return null;
+   [rows[c],rows[pivot]]=[rows[pivot],rows[c]];
+   const divisor=rows[c][c];for(let j=c;j<=n;j++)rows[c][j]/=divisor;
+   for(let r=0;r<n;r++)if(r!==c){const factor=rows[r][c];for(let j=c;j<=n;j++)rows[r][j]-=factor*rows[c][j]}
+  }
+  return rows.map(row=>row[n]);
+ }
+ function fit(points,knots){
+  const columns=knots.length+2,normal=Array.from({length:columns},()=>Array(columns).fill(0)),rhs=Array(columns).fill(0);
+  for(const p of points){
+   const row=[1,p.x,...knots.map(k=>Math.max(0,p.x-k))];
+   for(let i=0;i<columns;i++){rhs[i]+=row[i]*p.y;for(let j=0;j<columns;j++)normal[i][j]+=row[i]*row[j]}
+  }
+  const coefficients=solve(normal,rhs);if(!coefficients)return null;
+  const predict=x=>coefficients[0]+coefficients[1]*x+knots.reduce((sum,k,i)=>sum+coefficients[i+2]*Math.max(0,x-k),0);
+  const sse=points.reduce((sum,p)=>sum+(p.y-predict(p.x))**2,0);
+  // Count fitted knot positions as parameters; the variance floor reflects input resolution.
+  const bic=points.length*Math.log(Math.max(sse/points.length,RESOLUTION**2/12))+(2+2*knots.length)*Math.log(points.length);
+  const slopes=[coefficients[1]];knots.forEach((k,i)=>slopes.push(slopes[i]+coefficients[i+2]));
+  return {knots,coefficients,sse,bic,rmse:Math.sqrt(sse/points.length),slopes,predict};
+ }
+ function bestFit(points,count,minPoints=3){
+  if(!count)return fit(points,[]);
+  const candidates=[];
+  for(let i=0;i<points.length-1;i++)for(let quarter=0;quarter<4;quarter++){
+   const x=points[i].x+(points[i+1].x-points[i].x)*quarter/4;
+   const left=points.filter(p=>p.x<=x).length;
+   if(left>=minPoints&&points.length-left>=minPoints)candidates.push({x,left});
+  }
+  let best=null;
+  const consider=knots=>{const model=fit(points,knots);if(model&&(!best||model.sse<best.sse-1e-12))best=model};
+  for(let i=0;i<candidates.length;i++){
+   if(count===1){consider([candidates[i].x]);continue}
+   for(let j=i+1;j<candidates.length;j++)if(candidates[j].left-candidates[i].left>=minPoints)consider([candidates[i].x,candidates[j].x]);
+  }
+  return best;
+ }
+ function hasShape(model,points){
+  if(!model)return false;
+  const slopes=model.slopes;
+  // LT1 needs a near-flat low-load region; a lone late bend cannot be labelled LT1.
+  if(slopes[1]<=0||Math.abs(slopes[0])>slopes[1]*.25)return false;
+  const baseline=points.filter(p=>p.x<=model.knots[0]),baselineFit=fit(baseline,[]);
+  if(!baselineFit)return false;
+  const mean=baseline.reduce((sum,p)=>sum+p.x,0)/baseline.length;
+  const sxx=baseline.reduce((sum,p)=>sum+(p.x-mean)**2,0);
+  if(sxx<=1e-12)return false;
+  const variance=Math.max(baselineFit.sse/Math.max(1,baseline.length-2),RESOLUTION**2/12);
+  const span=baseline[baseline.length-1].x-baseline[0].x;
+  // Test the low-load region itself: a gentle initial rise must not be hidden by a much steeper LT2.
+  if(Math.abs(baselineFit.slopes[0])*span>Math.max(RESOLUTION,2*Math.sqrt(variance/sxx)*span)+1e-9)return false;
+  const edges=[0,...model.knots,1],minimumChange=Math.max(2*RESOLUTION,3*model.rmse);
+  for(let i=0;i<model.knots.length;i++){
+   const change=slopes[i+1]-slopes[i],span=Math.min(edges[i+1]-edges[i],edges[i+2]-edges[i+1]);
+   if(change<=0||change*span<minimumChange-1e-9)return false;
+  }
+  return true;
+ }
+ function localStep(points,knot){
+  const i=points.findIndex(p=>p.x>=knot);
+  return Math.max(points[i].x-(points[i-1]?.x??points[i].x),(points[i+1]?.x??points[i].x)-points[i].x);
+ }
+ function stableFit(points,model){
+  const positions=model.knots.map(k=>[k]),tolerances=model.knots.map(k=>localStep(points,k));
+  for(let omit=0;omit<points.length;omit++){
+   const subset=points.filter((p,i)=>i!==omit),candidate=bestFit(subset,model.knots.length,2);
+   if(!hasShape(candidate,subset))return null;
+   const simpler=bestFit(subset,model.knots.length-1,2);
+   if(!simpler||simpler.bic-candidate.bic<2)return null;
+   if(candidate.knots.some((k,i)=>Math.abs(k-model.knots[i])>tolerances[i]+1e-9))return null;
+   candidate.knots.forEach((k,i)=>positions[i].push(k));
+  }
+  return positions;
+ }
+ function estimate(points){
+  const empty={method:METHOD,lt1:null,lt2:null,fit:[],reason:'',lt1Reason:'',lt2Reason:''};
+  if(points.length<6)return {...empty,reason:'拐点分析至少需要 6 个有效读数',lt1Reason:'数据不足',lt2Reason:'数据不足'};
+  if(points.some((p,i)=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||(i&&p.x<=points[i-1].x)))return {...empty,reason:'功率未严格递增，无法识别拐点',lt1Reason:'功率顺序无效',lt2Reason:'功率顺序无效'};
+  const offset=points[0].x,range=points[points.length-1].x-offset;
+  const scaled=points.map(p=>({x:(p.x-offset)/range,y:p.y}));
+  const linear=bestFit(scaled,0),one=bestFit(scaled,1),two=points.length>=9?bestFit(scaled,2):null;
+  let selected=null,positions=null,unstable=false;
+  // A second turn point must improve on a one-knot fit, not just on a straight line.
+  for(const model of [two,one]){
+   const simpler=model===two?one:linear;
+   if(!model||!simpler||simpler.bic-model.bic<MIN_BIC_GAIN||linear.bic-model.bic<MIN_BIC_GAIN||!hasShape(model,scaled))continue;
+   const stable=stableFit(scaled,model);
+   if(!stable){unstable=true;break}
+   selected=model;positions=stable;break;
+  }
+  if(!selected)return {...empty,reason:unstable?'拐点位置对单个样本敏感':'未识别到稳定的低强度基线与斜率转折',lt1Reason:'未识别到稳定拐点',lt2Reason:'未识别到稳定拐点'};
+  const watts=x=>offset+x*range;
+  const turnpoint=i=>{
+   const power=watts(selected.knots[i]),low=watts(Math.min(...positions[i])),high=watts(Math.max(...positions[i]));
+   // Show the observed power bracket, not a statistical confidence interval.
+   const below=[...points].reverse().find(p=>p.x<Math.min(power,low)-1e-7)||points[0];
+   const above=points.find(p=>p.x>Math.max(power,high)+1e-7)||points[points.length-1];
+   return {power:Lab.core.round(power,1),lactate:Lab.core.round(selected.predict(selected.knots[i]),2),between:[below.x,above.x]};
+  };
+  const fitPoints=[0,...selected.knots,1].map(x=>({x:watts(x),y:selected.predict(x)}));
+  return {...empty,lt1:turnpoint(0),lt2:selected.knots.length===2?turnpoint(1):null,fit:fitPoints,rmse:Lab.core.round(selected.rmse,3),reason:selected.knots.length===1?'仅识别到第一处稳定拐点':'',lt2Reason:selected.knots.length===1?(points.length<9?'数据不足（至少 9 个有效读数）':'未识别到第二处稳定拐点'):''};
+ }
+ Lab.turnpoints={estimate,METHOD};
+})();
+
+</script>
+  <script>
+(function(){
+ 'use strict';
+ const Lab=window.Lab;
  const valid=(st)=>st&&st.quality!=='exclude'&&st.lactate!==''&&st.lactate!==null&&st.lactate!==undefined&&Number.isFinite(Number(st.lactate))&&Number(st.lactate)>=0.2&&Number(st.lactate)<=30;
  const value=(v)=>v===null||v===undefined||v===''?null:(Number.isFinite(Number(v))?Number(v):null);
- function crossing(points,target,startAt=0){
-  if(!Number.isFinite(target)||points.length<2)return null;
-  for(let i=Math.max(1,startAt+1);i<points.length;i++){
-    const a=points[i-1],b=points[i];
-    if(a.y<target&&b.y>=target&&b.y!==a.y){
-      return {power:round(a.x+(target-a.y)/(b.y-a.y)*(b.x-a.x),1),between:[a.x,b.x]};
-    }
-  }
-  return null;
- }
+ const cache=new WeakMap();
  function analyze(stages){
-  const points=stages.map((s,i)=>({...s,x:Number(s.power),y:value(s.lactate),index:i})).filter(s=>valid(s)).sort((a,b)=>a.x-b.x);
-  const first=points.slice(0,4);
-  const baseline=first.length>=2?Math.min(...first.map(p=>p.y)):null;
-  const baseIdx=baseline!==null?points.findIndex(x=>x.y===baseline):-1;
-  const delta05=baseline===null?null:crossing(points,baseline+.5,baseIdx);
-  const fixed2=crossing(points,2);
-  const fixed4=crossing(points,4);
+  const signature=JSON.stringify(stages.map(s=>[s.power,s.lactate,s.quality]));
+  const cached=cache.get(stages);if(cached?.signature===signature)return cached.result;
+  const points=stages.map((s,i)=>({...s,x:Number(s.power),y:value(s.lactate),index:i})).filter(s=>valid(s));
+  const turns=Lab.turnpoints.estimate(points);
   const peak=points.length?Math.max(...points.map(x=>x.y)):null;
-  const thresholds=[{name:'低强度参考 (+0.5)',key:'delta05',result:delta05},{name:'2 mmol/L 固定交点',key:'fixed2',result:fixed2},{name:'4 mmol/L 固定交点',key:'fixed4',result:fixed4}];
   const flags=[];
+  if(turns.reason)flags.push({kind:'neutral',text:turns.reason});
   if(points.length===0)flags.push({kind:'neutral',text:'无有效乳酸数据'});
   else{
-    if(points.length<5)flags.push({kind:'warn',text:`有效乳酸读数不足 5 个（${points.length} 个）`});
     const missing=stages.filter(s=>!valid(s)&&s.quality!=='exclude').length;
     if(missing)flags.push({kind:'neutral',text:`缺少乳酸读数：${missing} 级`});
     const excluded=stages.filter(s=>s.quality==='exclude'&&value(s.lactate)!==null).length;
@@ -199,9 +305,10 @@
       if(i>=2&&points[i].y-points[i-1].y>3.5&&points[i].y-points[i-2].y<2){flags.push({kind:'warn',text:`${points[i].x} W：乳酸较上一级增加 ${(points[i].y-points[i-1].y).toFixed(1)} mmol/L`});}
     }
   }
-  return {points,baseline,baselineSource:`前 ${first.length} 个有效阶段的最低乳酸`,delta05,fixed2,fixed4,peak,thresholds,flags,validCount:points.length,completePct:Math.round(points.length/Math.max(stages.length,1)*100)};
+  const result={points,...turns,peak,flags,validCount:points.length,completePct:Math.round(points.length/Math.max(stages.length,1)*100)};
+  cache.set(stages,{signature,result});return result;
  }
- Lab.analysis={analyze,crossing,valid,value};
+ Lab.analysis={analyze,valid,value};
 })();
 
 </script>
@@ -237,19 +344,20 @@ function svg(options){
  for(const marker of options.markers||[]){
    if(marker.x<minX||marker.x>maxX)continue;
    const x=mx(marker.x);
+   if(marker.between){const [low,high]=marker.between;markers.push(`<rect x="${mx(Math.max(low,minX))}" y="${pt}" width="${Math.max(0,mx(Math.min(high,maxX))-mx(Math.max(low,minX)))}" height="${H-pt-pb}" fill="${marker.color||'#adc177'}" opacity=".07"/>`)}
    markers.push(`<line x1="${x}" x2="${x}" y1="${pt}" y2="${H-pb}" stroke="${marker.color||'#adc177'}" stroke-width="2" stroke-dasharray="6 5" opacity=".9"/><text x="${x+5}" y="${pt+11}" font-size="9" fill="${marker.color||'#67845c'}">${esc(marker.label||'参考交点')}</text>`);
  }
  const lines=series.map(s=>{
-  if(s.points.length===1){const p=s.points[0];return `<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="5" fill="${s.color}"/>`}
+  if(s.points.length===1&&s.showPoints!==false){const p=s.points[0];return `<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="5" fill="${s.color}"/>`}
   const d=s.points.map((p,i)=>`${i===0?'M':'L'} ${mx(p.x).toFixed(2)} ${my(p.y).toFixed(2)}`).join(' ');
-  let circles=s.points.map(p=>`<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="4.5" fill="white" stroke="${s.color}" stroke-width="2.8"><title>${esc(s.label||'数据')} · ${p.x} W · ${p.y}</title></circle>`).join('');
-  return `<path d="${d}" stroke="${s.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" fill="none"/>${circles}`;
+  let circles=s.showPoints===false?'':s.points.map(p=>`<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="4.5" fill="white" stroke="${s.color}" stroke-width="2.8"><title>${esc(s.label||'数据')} · ${p.x} W · ${p.y}</title></circle>`).join('');
+  return `<path d="${d}" stroke="${s.color}" stroke-width="${s.showPoints===false?2:3}" ${s.dashed?'stroke-dasharray="7 5"':''} stroke-linejoin="round" stroke-linecap="round" fill="none"/>${circles}`;
  }).join('');
  return `<svg role="img" aria-label="${esc(options.description||'测试曲线')}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"><g>${grid.join('')}</g>${markers.join('')}${lines}<text x="${(pl+W-pr)/2}" y="${H-7}" text-anchor="middle" font-size="11" font-weight="600" fill="#829198">功率 / W</text><text x="16" y="${H/2}" text-anchor="middle" transform="rotate(-90 16 ${H/2})" font-size="11" font-weight="600" fill="#829198">${esc(options.yAxisLabel||'数值')}</text></svg>`;
 }
-function curve(stages,metric,markers=[]){
- const filtered=stages.map(s=>({x:Number(s.power),y:Lab.analysis.value(s[metric]),quality:s.quality})).filter(p=>p.y!==null&&Number.isFinite(p.x)&&p.quality!=='exclude');
- return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered}],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
+function curve(stages,metric,markers=[],fit=[]){
+ const filtered=stages.filter(s=>metric!=='lactate'||Lab.analysis.valid(s)).map(s=>({x:Number(s.power),y:Lab.analysis.value(s[metric]),quality:s.quality})).filter(p=>p.y!==null&&Number.isFinite(p.x)&&p.quality!=='exclude');
+ return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered},...(fit.length?[{label:'分段线性拟合',points:fit,color:'#c98d56',dashed:true,showPoints:false}]:[])],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
 }
 Lab.charts={svg,curve,palette};
 })();
@@ -289,14 +397,11 @@ function heading(title,actions=''){
  return `<div class="heading"><h1>${esc(title)}</h1>${actions?`<div class="heading-actions">${actions}</div>`:''}</div>`;
 }
 
-function introStats(s,an){
- const nums=[
-  {label:'有效乳酸样本',value:`${an.validCount}<small> / ${s.stages.length} 级</small>`,ic:'layers'},
-  {label:'基线 +0.5 mmol/L 交点',value:an.delta05?`${fmt(an.delta05.power)} <small>W</small>`:'—',ic:'target'},
-  {label:'2 mmol/L 交点',value:an.fixed2?`${fmt(an.fixed2.power)} <small>W</small>`:'—',ic:'droplet'},
-  {label:'4 mmol/L 交点',value:an.fixed4?`${fmt(an.fixed4.power)} <small>W</small>`:'—',ic:'chart'}
- ];
- return `<div class="stats">${nums.map(o=>`<div class="card stat"><div class="stat-label">${o.label}<span class="stat-icon">${icon(o.ic)}</span></div><div class="stat-value">${o.value}</div></div>`).join('')}</div>`;
+function turnpointFoot(result,reason){return result?`定位区间 ${fmt(result.between[0])}–${fmt(result.between[1])} W`:(reason||'未识别')}
+function turnpointMarkers(a){return [['LT1',a.lt1,'#9da64a'],['LT2',a.lt2,'#709bbd']].filter(([,result])=>result).map(([label,result,color])=>({x:result.power,label,color,between:result.between}))}
+function metricCard(label,value,unit='',foot=''){return `<div class="card stat"><div class="stat-label">${esc(label)}</div><div class="stat-value">${value} <small>${esc(unit)}</small></div>${foot?`<div class="stat-foot">${esc(foot)}</div>`:''}</div>`}
+function introStats(s,a){
+ return `<div class="stats">${metricCard('有效乳酸样本',a.validCount,`/ ${s.stages.length} 级`)}${metricCard('LT1 拐点估计',a.lt1?fmt(a.lt1.power):'—','W',turnpointFoot(a.lt1,a.lt1Reason))}${metricCard('LT2 拐点估计',a.lt2?fmt(a.lt2.power):'—','W',turnpointFoot(a.lt2,a.lt2Reason))}${metricCard('最高有效乳酸',a.peak===null?'—':fmt(a.peak,1),'mmol/L')}</div>`;
 }
 function elapsedNow(e){return Math.max(0,(e.elapsedMs||0)+(e.status==='running'&&e.startedAt?Math.max(0,Date.now()-e.startedAt):0))}
 function phaseDuration(s){return s.execution.phase==='sampling'?s.protocol.samplePauseSec*1000:s.stages[s.execution.stageIndex].durationSec*1000}
@@ -336,29 +441,27 @@ function recordTable(s){
   <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th></tr></thead><tbody>${sessionRows(s)}</tbody></table></div>
  </div>`;
 }
-function quickChart(s){const an=A.analyze(s.stages);const m=[];if(an.delta05)m.push({x:an.delta05.power,label:'+0.5',color:'#9da64a'});
- return `<div class="card card-pad"><div class="card-heading"><div><div class="card-title">乳酸-功率曲线</div></div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',m)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>有效乳酸读数</span><span><i class="legend-dot" style="background:#9da64a"></i>+0.5 参考交点</span></div></div>`}
+function quickChart(s){const a=A.analyze(s.stages);
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span>LT1 / LT2 拐点估计</span></div></div>`;
+}
 function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
  return head+introStats(s,A.analyze(s.stages))+`<div class="grid-main"><div>${renderLive(s)}</div><div>${quickChart(s)}</div></div>`+recordTable(s);
 }
-function thresholdCard(label,result,subtitle,emphasis=false){return `<div class="card stat"><div class="stat-label">${label}<span class="stat-icon">${icon(emphasis?'target':'activity')}</span></div><div class="stat-value">${result?`${fmt(result.power, label==='有效采样'?0:1)} <small>${label==='有效采样'?'级':'W'}</small>`:'—'}</div>${subtitle?`<div class="stat-foot">${subtitle}</div>`:""}</div>`}
+
 function renderAnalysis(){
  const s=active();const act=heading('结果分析',s?`${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:btn('new',icon('plus')+' 新建测试','btn btn-primary'));
  if(!s)return act+C.emptyState('暂无测试','','chart',btn('new',icon('plus')+' 新测试','btn btn-primary'));
  const a=A.analyze(s.stages);
- const markers=[];
- if(a.delta05)markers.push({x:a.delta05.power,label:'+0.5',color:'#9da64a'});
- if(a.fixed2)markers.push({x:a.fixed2.power,label:'2 mmol',color:'#709bbd'});
- if(a.fixed4)markers.push({x:a.fixed4.power,label:'4 mmol',color:'#c98d56'});
+ const markers=turnpointMarkers(a);
  return `${act}<div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(s.execution.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}
- <div class="stats">${thresholdCard('基线 +0.5 mmol/L 交点',a.delta05,'前 4 个有效值的最低值为基线',true)}${thresholdCard('2 mmol/L 交点',a.fixed2,'')}${thresholdCard('4 mmol/L 交点',a.fixed4,'')}${thresholdCard('有效采样',a.validCount?{power:a.validCount}:null,`${s.stages.length} 个计划阶段`,'samples')}</div>
- <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#9da64a"></i>+0.5 交点</span><span><i class="legend-dot" style="background:#709bbd"></i>2 mmol</span><span><i class="legend-dot" style="background:#c98d56"></i>4 mmol</span></div></div>
+ ${introStats(s,a)}<div class="analysis-method">连续分段线性回归 · LT1 为首次斜率增加，LT2 为再次增加 · 阴影为定位区间</div>
+ <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">心率 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'hr')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>阶段心率</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">RPE（0–10）× 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'rpe')}</div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>低强度基线</small><strong>${a.baseline!==null?fmt(a.baseline,1)+' mmol/L':'数据不足'}</strong></div><div class="report-detail"><small>最高有效乳酸</small><strong>${a.peak!==null?fmt(a.peak,1)+' mmol/L':'—'}</strong></div><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
+ <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>分析方法</small><strong>分段线性回归</strong></div><div class="report-detail"><small>最高有效乳酸</small><strong>${a.peak!==null?fmt(a.peak,1)+' mmol/L':'—'}</strong></div><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
 }
 function renderHistory(){
  const actions=`${btn('import',icon('upload')+' 导入','btn')}${btn('backup',icon('download')+' 全部备份','btn btn-dark')}`;
@@ -525,8 +628,9 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
 function duplicate(source){const s=source||active();if(!s)return;
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:s},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
-function backup(){C.download(JSON.stringify({schemaVersion:1,exportType:'backup',exportedAt:new Date().toISOString(),sessions:db.sessions},null,2),'PaceLab_全部测试备份_'+new Date().toISOString().slice(0,10)+'.json','application/json;charset=utf-8')}
+function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
+function backup(){C.download(JSON.stringify({schemaVersion:1,exportType:'backup',exportedAt:new Date().toISOString(),sessions:db.sessions.map(exportedSession)},null,2),'PaceLab_全部测试备份_'+new Date().toISOString().slice(0,10)+'.json','application/json;charset=utf-8')}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
@@ -555,10 +659,10 @@ function importSessions(data){
 function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell=(v)=>`<td>${esc(v??'—')}</td>`;
  $('#print-report').innerHTML=`<h1>PaceLab 测试报告</h1><p>乳酸阶梯测试 · ${dateText(new Date().toISOString())}</p><hr style="border:0;border-top:1px solid #ddd;margin:15px 0">
  <h2>${esc(s.name)}</h2>${athleteLine(s)}<p>创建时间：${dateText(s.createdAt)}　|　协议：${s.protocol.startPower} W 起步 / +${s.protocol.increment} W / ${s.protocol.stageMinutes} 分钟 × ${s.stages.length} 级<br>采样方式：${s.protocol.samplingMode==='solo'?'单人间断采样':'协助连续采样'}　|　部位：${s.protocol.sampleSite==='earlobe'?'耳垂':'指尖'}<br>设备：${esc(s.metadata?.device||'未填写')}　|　环境：${esc(s.metadata?.environment||'未填写')}</p>
- <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['+0.5 参考交点',a.delta05?fmt(a.delta05.power,1)+' W':'—'],['2 mmol/L 交点',a.fixed2?fmt(a.fixed2.power,1)+' W':'—'],['4 mmol/L 交点',a.fixed4?fmt(a.fixed4.power,1)+' W':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
- <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',a.delta05?[{x:a.delta05.power,label:'+0.5 参考'}]:[])}
+ <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['LT1 拐点估计',a.lt1?fmt(a.lt1.power)+' W':'—'],['LT2 拐点估计',a.lt2?fmt(a.lt2.power)+' W':'—'],['最高有效乳酸',a.peak!==null?fmt(a.peak,1)+' mmol/L':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
+ <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}
  <h2>阶段记录明细</h2><table class="data-table"><thead><tr><th>阶段</th><th>功率</th><th>时长</th><th>乳酸</th><th>心率</th><th>RPE</th><th>质量</th><th>备注</th></tr></thead><tbody>${s.stages.map((st,i)=>`<tr>${printCell(i+1)}${printCell(st.power+' W')}${printCell(st.durationSec/60+' min')}${printCell(st.lactate)}${printCell(st.hr)}${printCell(st.rpe)}${printCell(st.quality==='normal'?'正常':st.quality==='exclude'?'排除':'可疑')}${printCell(st.notes)}</tr>`).join('')}</tbody></table>
- <p>浓度交点采用线性插值，不外推。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
+ <p>方法：连续分段线性回归（${esc(a.method)}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
  window.print();
 }
 function createFromForm(){
@@ -626,7 +730,7 @@ function refreshDataDisplay(changed){
  const a=A.analyze(s.stages),stats=document.querySelector('.stats');
  if(stats)stats.outerHTML=introStats(s,a);
  const plot=$('#overview-lactate-chart');
- if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',a.delta05?[{x:a.delta05.power,label:'+0.5',color:'#9da64a'}]:[]);
+ if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit);
  if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',A.value(changed.value)!==null);
 }
 function handleChange(event){

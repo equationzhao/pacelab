@@ -31,14 +31,11 @@ function heading(title,actions=''){
  return `<div class="heading"><h1>${esc(title)}</h1>${actions?`<div class="heading-actions">${actions}</div>`:''}</div>`;
 }
 
-function introStats(s,an){
- const nums=[
-  {label:'有效乳酸样本',value:`${an.validCount}<small> / ${s.stages.length} 级</small>`,ic:'layers'},
-  {label:'基线 +0.5 mmol/L 交点',value:an.delta05?`${fmt(an.delta05.power)} <small>W</small>`:'—',ic:'target'},
-  {label:'2 mmol/L 交点',value:an.fixed2?`${fmt(an.fixed2.power)} <small>W</small>`:'—',ic:'droplet'},
-  {label:'4 mmol/L 交点',value:an.fixed4?`${fmt(an.fixed4.power)} <small>W</small>`:'—',ic:'chart'}
- ];
- return `<div class="stats">${nums.map(o=>`<div class="card stat"><div class="stat-label">${o.label}<span class="stat-icon">${icon(o.ic)}</span></div><div class="stat-value">${o.value}</div></div>`).join('')}</div>`;
+function turnpointFoot(result,reason){return result?`定位区间 ${fmt(result.between[0])}–${fmt(result.between[1])} W`:(reason||'未识别')}
+function turnpointMarkers(a){return [['LT1',a.lt1,'#9da64a'],['LT2',a.lt2,'#709bbd']].filter(([,result])=>result).map(([label,result,color])=>({x:result.power,label,color,between:result.between}))}
+function metricCard(label,value,unit='',foot=''){return `<div class="card stat"><div class="stat-label">${esc(label)}</div><div class="stat-value">${value} <small>${esc(unit)}</small></div>${foot?`<div class="stat-foot">${esc(foot)}</div>`:''}</div>`}
+function introStats(s,a){
+ return `<div class="stats">${metricCard('有效乳酸样本',a.validCount,`/ ${s.stages.length} 级`)}${metricCard('LT1 拐点估计',a.lt1?fmt(a.lt1.power):'—','W',turnpointFoot(a.lt1,a.lt1Reason))}${metricCard('LT2 拐点估计',a.lt2?fmt(a.lt2.power):'—','W',turnpointFoot(a.lt2,a.lt2Reason))}${metricCard('最高有效乳酸',a.peak===null?'—':fmt(a.peak,1),'mmol/L')}</div>`;
 }
 function elapsedNow(e){return Math.max(0,(e.elapsedMs||0)+(e.status==='running'&&e.startedAt?Math.max(0,Date.now()-e.startedAt):0))}
 function phaseDuration(s){return s.execution.phase==='sampling'?s.protocol.samplePauseSec*1000:s.stages[s.execution.stageIndex].durationSec*1000}
@@ -78,29 +75,27 @@ function recordTable(s){
   <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th></tr></thead><tbody>${sessionRows(s)}</tbody></table></div>
  </div>`;
 }
-function quickChart(s){const an=A.analyze(s.stages);const m=[];if(an.delta05)m.push({x:an.delta05.power,label:'+0.5',color:'#9da64a'});
- return `<div class="card card-pad"><div class="card-heading"><div><div class="card-title">乳酸-功率曲线</div></div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',m)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>有效乳酸读数</span><span><i class="legend-dot" style="background:#9da64a"></i>+0.5 参考交点</span></div></div>`}
+function quickChart(s){const a=A.analyze(s.stages);
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span>LT1 / LT2 拐点估计</span></div></div>`;
+}
 function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
  return head+introStats(s,A.analyze(s.stages))+`<div class="grid-main"><div>${renderLive(s)}</div><div>${quickChart(s)}</div></div>`+recordTable(s);
 }
-function thresholdCard(label,result,subtitle,emphasis=false){return `<div class="card stat"><div class="stat-label">${label}<span class="stat-icon">${icon(emphasis?'target':'activity')}</span></div><div class="stat-value">${result?`${fmt(result.power, label==='有效采样'?0:1)} <small>${label==='有效采样'?'级':'W'}</small>`:'—'}</div>${subtitle?`<div class="stat-foot">${subtitle}</div>`:""}</div>`}
+
 function renderAnalysis(){
  const s=active();const act=heading('结果分析',s?`${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:btn('new',icon('plus')+' 新建测试','btn btn-primary'));
  if(!s)return act+C.emptyState('暂无测试','','chart',btn('new',icon('plus')+' 新测试','btn btn-primary'));
  const a=A.analyze(s.stages);
- const markers=[];
- if(a.delta05)markers.push({x:a.delta05.power,label:'+0.5',color:'#9da64a'});
- if(a.fixed2)markers.push({x:a.fixed2.power,label:'2 mmol',color:'#709bbd'});
- if(a.fixed4)markers.push({x:a.fixed4.power,label:'4 mmol',color:'#c98d56'});
+ const markers=turnpointMarkers(a);
  return `${act}<div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(s.execution.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}
- <div class="stats">${thresholdCard('基线 +0.5 mmol/L 交点',a.delta05,'前 4 个有效值的最低值为基线',true)}${thresholdCard('2 mmol/L 交点',a.fixed2,'')}${thresholdCard('4 mmol/L 交点',a.fixed4,'')}${thresholdCard('有效采样',a.validCount?{power:a.validCount}:null,`${s.stages.length} 个计划阶段`,'samples')}</div>
- <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#9da64a"></i>+0.5 交点</span><span><i class="legend-dot" style="background:#709bbd"></i>2 mmol</span><span><i class="legend-dot" style="background:#c98d56"></i>4 mmol</span></div></div>
+ ${introStats(s,a)}<div class="analysis-method">连续分段线性回归 · LT1 为首次斜率增加，LT2 为再次增加 · 阴影为定位区间</div>
+ <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>分段拟合</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">心率 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'hr')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>阶段心率</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">RPE（0–10）× 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'rpe')}</div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>低强度基线</small><strong>${a.baseline!==null?fmt(a.baseline,1)+' mmol/L':'数据不足'}</strong></div><div class="report-detail"><small>最高有效乳酸</small><strong>${a.peak!==null?fmt(a.peak,1)+' mmol/L':'—'}</strong></div><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
+ <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>分析方法</small><strong>分段线性回归</strong></div><div class="report-detail"><small>最高有效乳酸</small><strong>${a.peak!==null?fmt(a.peak,1)+' mmol/L':'—'}</strong></div><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
 }
 function renderHistory(){
  const actions=`${btn('import',icon('upload')+' 导入','btn')}${btn('backup',icon('download')+' 全部备份','btn btn-dark')}`;
@@ -267,8 +262,9 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
 function duplicate(source){const s=source||active();if(!s)return;
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:s},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
-function backup(){C.download(JSON.stringify({schemaVersion:1,exportType:'backup',exportedAt:new Date().toISOString(),sessions:db.sessions},null,2),'PaceLab_全部测试备份_'+new Date().toISOString().slice(0,10)+'.json','application/json;charset=utf-8')}
+function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
+function backup(){C.download(JSON.stringify({schemaVersion:1,exportType:'backup',exportedAt:new Date().toISOString(),sessions:db.sessions.map(exportedSession)},null,2),'PaceLab_全部测试备份_'+new Date().toISOString().slice(0,10)+'.json','application/json;charset=utf-8')}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
@@ -297,10 +293,10 @@ function importSessions(data){
 function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell=(v)=>`<td>${esc(v??'—')}</td>`;
  $('#print-report').innerHTML=`<h1>PaceLab 测试报告</h1><p>乳酸阶梯测试 · ${dateText(new Date().toISOString())}</p><hr style="border:0;border-top:1px solid #ddd;margin:15px 0">
  <h2>${esc(s.name)}</h2>${athleteLine(s)}<p>创建时间：${dateText(s.createdAt)}　|　协议：${s.protocol.startPower} W 起步 / +${s.protocol.increment} W / ${s.protocol.stageMinutes} 分钟 × ${s.stages.length} 级<br>采样方式：${s.protocol.samplingMode==='solo'?'单人间断采样':'协助连续采样'}　|　部位：${s.protocol.sampleSite==='earlobe'?'耳垂':'指尖'}<br>设备：${esc(s.metadata?.device||'未填写')}　|　环境：${esc(s.metadata?.environment||'未填写')}</p>
- <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['+0.5 参考交点',a.delta05?fmt(a.delta05.power,1)+' W':'—'],['2 mmol/L 交点',a.fixed2?fmt(a.fixed2.power,1)+' W':'—'],['4 mmol/L 交点',a.fixed4?fmt(a.fixed4.power,1)+' W':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
- <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',a.delta05?[{x:a.delta05.power,label:'+0.5 参考'}]:[])}
+ <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['LT1 拐点估计',a.lt1?fmt(a.lt1.power)+' W':'—'],['LT2 拐点估计',a.lt2?fmt(a.lt2.power)+' W':'—'],['最高有效乳酸',a.peak!==null?fmt(a.peak,1)+' mmol/L':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
+ <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}
  <h2>阶段记录明细</h2><table class="data-table"><thead><tr><th>阶段</th><th>功率</th><th>时长</th><th>乳酸</th><th>心率</th><th>RPE</th><th>质量</th><th>备注</th></tr></thead><tbody>${s.stages.map((st,i)=>`<tr>${printCell(i+1)}${printCell(st.power+' W')}${printCell(st.durationSec/60+' min')}${printCell(st.lactate)}${printCell(st.hr)}${printCell(st.rpe)}${printCell(st.quality==='normal'?'正常':st.quality==='exclude'?'排除':'可疑')}${printCell(st.notes)}</tr>`).join('')}</tbody></table>
- <p>浓度交点采用线性插值，不外推。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
+ <p>方法：连续分段线性回归（${esc(a.method)}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
  window.print();
 }
 function createFromForm(){
@@ -368,7 +364,7 @@ function refreshDataDisplay(changed){
  const a=A.analyze(s.stages),stats=document.querySelector('.stats');
  if(stats)stats.outerHTML=introStats(s,a);
  const plot=$('#overview-lactate-chart');
- if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',a.delta05?[{x:a.delta05.power,label:'+0.5',color:'#9da64a'}]:[]);
+ if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit);
  if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',A.value(changed.value)!==null);
 }
 function handleChange(event){
