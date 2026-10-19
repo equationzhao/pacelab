@@ -6,11 +6,11 @@ html=(ROOT/'index.html').read_text(encoding='utf-8')
 css=(ROOT/'assets/styles.css').read_text(encoding='utf-8')
 css=re.sub(r"@import url\([^;]+;",'',css)
 html=html.replace('  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">\n','')
-html=html.replace('<link rel="stylesheet" href="assets/styles.css">',f'<style>\n{css}\n</style>')
+html=re.sub(r'<link rel="stylesheet" href="assets/styles\.css(?:\?[^"]*)?">',lambda _:f'<style>\n{css}\n</style>',html)
 for name in ['core','tests','turnpoints','analysis','charts','app']:
     path=f'src/{name}.js'
     js=(ROOT/path).read_text(encoding='utf-8')
-    html=html.replace(f'<script src="{path}"></script>',f'<script>\n{js}\n</script>')
+    html=re.sub(r'<script src="'+re.escape(path)+r'(?:\?[^"]*)?"></script>',lambda _:f'<script>\n{js}\n</script>',html)
 output=ROOT/'dist'/'PaceLab_运动表现测试工作台.html'
 output.parent.mkdir(parents=True,exist_ok=True)
 output.write_text(html,encoding='utf-8')

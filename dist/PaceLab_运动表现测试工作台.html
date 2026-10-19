@@ -94,7 +94,7 @@
   const write=(v)=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(v));return true}catch{window.Lab?.ui?.toast?.('浏览器存储失败，请导出 JSON 备份数据');return false}};
   const download=(content,name,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)};
   const csvCell=(x)=>{const v=String(x??'');const safe=/^[=+@\-\t\r]/.test(v)?"'"+v:v;return `"${safe.replace(/"/g,'""')}"`};
-  const sessionCsv=(s)=>{const analysis=Lab.analysis.analyze(s.stages);const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','note','athlete_name','athlete_sex','athlete_age','ftp_w','test_goal','protocol_preset','analysis_method','lt1_power_w','lt2_power_w','analysis_model'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',s.protocol.goal??'',s.protocol.preset??'',analysis.method,analysis.lt1?.power??'',analysis.lt2?.power??'',analysis.model??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
+  const sessionCsv=(s)=>{const analysis=Lab.analysis.analyze(s.stages);const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','note','athlete_name','athlete_sex','athlete_age','ftp_w','test_goal','protocol_preset','analysis_method','lt1_power_w','lt2_power_w','analysis_model','lt1_model','lt2_model','lt2_region_start_w','lt2_region_end_w'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',s.protocol.goal??'',s.protocol.preset??'',analysis.method,analysis.lt1?.power??'',analysis.lt2?.power??'',analysis.model??'',analysis.lt1Model??'',analysis.lt2Model??'',analysis.lt2Region?.[0]??'',analysis.lt2Region?.[1]??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
   Lab.core={esc,attr,n,fmt,dateText,uid,clamp,round,icon,emptyState,read,write,download,sessionCsv,STORAGE_KEY};
 })();
 
@@ -162,9 +162,9 @@
 (function(){
  'use strict';
  const Lab=window.Lab;
- const METHOD='turnpoint-model-selection-v2';
+ const METHOD='three-phase-turnpoints-v3';
  // Model selection and support rules, not physiological concentration cut-offs.
- const RESOLUTION=.1,FIRST_BIC_GAIN=2,SECOND_BIC_GAIN=6;
+ const RESOLUTION=.1,FIRST_BIC_GAIN=2,JOINT_BIC_GAIN=2;
  function solve(matrix,vector){
   const rows=matrix.map((row,i)=>[...row,vector[i]]),n=vector.length;
   for(let c=0;c<n;c++){
@@ -191,19 +191,23 @@
   const slopes=[coefficients[1]];knots.forEach((k,i)=>slopes.push(slopes[i]+coefficients[i+2]));
   return {kind:knots.length?'segmented-linear':'linear',knots,coefficients,sse,bic,rmse:Math.sqrt(sse/points.length),slopes,predict};
  }
- function bestFit(points,count,minPoints=3){
+ function bestFit(points,count,minPoints=2,shared=false){
   if(!count)return fit(points,[]);
   const candidates=[];
   for(let i=0;i<points.length-1;i++)for(let quarter=0;quarter<4;quarter++){
    const x=points[i].x+(points[i+1].x-points[i].x)*quarter/4;
-   const left=points.filter(p=>p.x<=x).length;
-   if(left>=minPoints&&points.length-left>=minPoints)candidates.push({x,left});
+   const left=points.filter(p=>p.x<=x+1e-9).length;
+   const right=points.filter(p=>shared?p.x>=x-1e-9:p.x>x+1e-9).length;
+   if(left>=minPoints&&right>=minPoints)candidates.push({x,left});
   }
   let best=null;
   const consider=knots=>{const model=fit(points,knots);if(model&&(!best||model.sse<best.sse-1e-12))best=model};
   for(let i=0;i<candidates.length;i++){
    if(count===1){consider([candidates[i].x]);continue}
-   for(let j=i+1;j<candidates.length;j++)if(candidates[j].left-candidates[i].left>=minPoints)consider([candidates[i].x,candidates[j].x]);
+   for(let j=i+1;j<candidates.length;j++){
+    const middle=shared?points.filter(p=>p.x>=candidates[i].x-1e-9&&p.x<=candidates[j].x+1e-9).length:candidates[j].left-candidates[i].left;
+    if(middle>=minPoints)consider([candidates[i].x,candidates[j].x]);
+   }
   }
   return best;
  }
@@ -278,22 +282,75 @@
    // Only the dimensionless growth rate needs a bounded scalar search.
    const model=exponentialFit(points,knot);
    if(!model||model.predict(1)-model.baseline<Math.max(2*RESOLUTION,3*model.rmse))continue;
+   // A well-fitted tail alone cannot identify its onset: the slope jump at
+   // the onset must itself be resolvable over a local sampling interval.
+   if(model.amplitude*model.rate*localStep(points,knot)<Math.max(2*RESOLUTION,3*model.rmse))continue;
    if(!best||model.sse<best.sse-1e-12)best=model;
   }
   return best;
  }
- function firstModels(points,refit=false){const linear=bestFit(points,1,2);return [hasShape(linear,points)?linear:null,bestExponential(points,refit?1:2,refit?2:3)].filter(Boolean).sort((a,b)=>a.bic-b.bic)}
+ function firstModels(points){const linear=bestFit(points,1,2);return [hasShape(linear,points)?linear:null,bestExponential(points)].filter(Boolean).sort((a,b)=>a.bic-b.bic)}
+ // LTP2 is the transition from the middle to the steep upper phase. A smooth
+ // exponential fit does not disprove this operational three-phase estimate.
+ // Test each knot independently: losing baseline support must not erase LT2.
+ function jointShape(model,index){
+  if(!model)return false;
+  const slopes=model.slopes;
+  if(slopes[1]<=0||(index===0&&slopes[0]>slopes[1]*.25))return false;
+  const edges=[0,...model.knots,1],change=slopes[index+1]-slopes[index];
+  const span=Math.min(edges[index+1]-edges[index],edges[index+2]-edges[index+1]);
+  return change>0&&change*span>=Math.max(2*RESOLUTION,3*model.rmse)-1e-9;
+ }
+ function stableJoint(points,model){
+  const positions=model.knots.map(k=>[k]),stable=[true,true];
+  for(let omit=0;omit<points.length;omit++){
+   const subset=points.filter((p,i)=>i!==omit),candidate=bestFit(subset,2,2,true);
+   for(let index=0;index<2;index++){
+    const reduced=candidate?fit(subset,[candidate.knots[1-index]]):null;
+    if(!jointShape(candidate,index)||!reduced||reduced.bic-candidate.bic<2||Math.abs(candidate.knots[index]-model.knots[index])>localStep(points,model.knots[index])+1e-9)stable[index]=false;
+    else positions[index].push(candidate.knots[index]);
+   }
+  }
+  return positions.map((xs,index)=>stable[index]?xs:null);
+ }
+ // Once LT1 is available, locate LT2 in the observed post-LT1 region rather
+ // than allowing the baseline to pull both knots towards the high-load tail.
+ function upperFit(points,anchor,refit=false){
+  const start=[...points].reverse().find(p=>p.x<=anchor+1e-9)?.x??points[0].x;
+  const region=points.filter(p=>p.x>=start-1e-9);
+  if(region.length<(refit?4:5))return null;
+  const model=bestFit(region,1,2,refit);
+  if(!model||model.knots[0]-anchor<localStep(points,anchor)-1e-9)return null;
+  const change=model.slopes[1]-model.slopes[0];
+  const span=Math.min(model.knots[0]-region[0].x,region[region.length-1].x-model.knots[0]);
+  if(model.slopes[0]<=0||change<=0||change*span<Math.max(2*RESOLUTION,3*model.rmse)-1e-9||fit(region,[]).bic-model.bic<2)return null;
+  return {...model,region};
+ }
+ function stableUpper(points,first){
+  const anchor=first.model.knots[first.index],model=upperFit(points,anchor);
+  if(!model)return null;
+  const positions=[model.knots[0]],tolerance=localStep(points,model.knots[0]);
+  const accept=(subset,boundary,refit)=>{
+   const candidate=upperFit(subset,boundary,refit);
+   if(!candidate||Math.abs(candidate.knots[0]-model.knots[0])>tolerance+1e-9)return false;
+   positions.push(candidate.knots[0]);return true;
+  };
+  for(let omit=0;omit<points.length;omit++)if(!accept(points.filter((p,i)=>i!==omit),anchor,true))return null;
+  // Include uncertainty in the start of the upper region, not just its samples.
+  for(const boundary of [Math.min(...first.positions),Math.max(...first.positions)])if(!accept(points,boundary,false))return null;
+  return {model,index:0,positions};
+ }
  function localStep(points,knot){
   const i=points.findIndex(p=>p.x>=knot);
   return Math.max(points[i].x-(points[i-1]?.x??points[i].x),(points[i+1]?.x??points[i].x)-points[i].x);
  }
- function stableFit(points,model){
+ function stableFit(points,model,threePhases=false){
   const positions=model.knots.map(k=>[k]),tolerances=model.knots.map(k=>localStep(points,k));
   for(let omit=0;omit<points.length;omit++){
    const subset=points.filter((p,i)=>i!==omit);
    const candidate=model.kind==='exponential-onset'?bestExponential(subset,1,2):bestFit(subset,model.knots.length,2);
    if(!candidate||(candidate.kind!=='exponential-onset'&&!hasShape(candidate,subset)))return null;
-   const simpler=model.knots.length===2?[noTurnFit(subset),...firstModels(subset,true)].sort((a,b)=>a.bic-b.bic)[0]:noTurnFit(subset);
+   const simpler=threePhases?bestFit(subset,0):noTurnFit(subset);
    if(!simpler||simpler.bic-candidate.bic<2)return null;
    if(candidate.knots.some((k,i)=>Math.abs(k-model.knots[i])>tolerances[i]+1e-9))return null;
    candidate.knots.forEach((k,i)=>positions[i].push(k));
@@ -301,36 +358,58 @@
   return positions;
  }
  function estimate(points){
-  const empty={method:METHOD,model:null,lt1:null,lt2:null,fit:[],reason:'',lt1Reason:'',lt2Reason:''};
+  const empty={method:METHOD,model:null,lt1Model:null,lt2Model:null,lt2Region:null,lt1:null,lt2:null,fit:[],lt2Fit:[],reason:'',lt1Reason:'',lt2Reason:''};
   if(points.length<6)return {...empty,reason:'拐点分析至少需要 6 个有效读数',lt1Reason:'数据不足',lt2Reason:'数据不足'};
   if(points.some((p,i)=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||(i&&p.x<=points[i-1].x)))return {...empty,reason:'功率未严格递增，无法识别拐点',lt1Reason:'功率顺序无效',lt2Reason:'功率顺序无效'};
   const offset=points[0].x,range=points[points.length-1].x-offset;
   const scaled=points.map(p=>({x:(p.x-offset)/range,y:p.y}));
-  const noTurn=noTurnFit(scaled),ones=firstModels(scaled),twoCandidate=points.length>=8?bestFit(scaled,2,2):null;
-  const two=hasShape(twoCandidate,scaled)?twoCandidate:null;
-  let selected=null,positions=null,unstable=false;
-  // Two knots must beat both single-onset families and a straight line. Failure
-  // to confirm LT2 must not suppress an independently supported LT1 model.
-  for(const model of [two,...ones]){
-   const simpler=model===two?[noTurn,...ones].sort((a,b)=>a.bic-b.bic)[0]:noTurn;
-   const minimumGain=model===two?SECOND_BIC_GAIN:FIRST_BIC_GAIN;
-   if(!model||!simpler||simpler.bic-model.bic<minimumGain||noTurn.bic-model.bic<minimumGain)continue;
-   const stable=stableFit(scaled,model);
-   if(!stable){unstable=true;continue}
-   selected=model;positions=stable;break;
+  const noTurn=noTurnFit(scaled),ones=firstModels(scaled),two=points.length>=7?bestFit(scaled,2,2):null;
+  let jointPositions=null,first=null,second=null,unstable=false,secondReason='';
+  const singleLine=bestFit(scaled,1,2),straight=bestFit(scaled,0),quadratic=quadraticFit(scaled);
+  if(two&&jointShape(two,0)&&jointShape(two,1)&&[singleLine,straight,quadratic].every(model=>model&&model.bic-two.bic>=JOINT_BIC_GAIN)){
+   const stable=stableJoint(scaled,two);
+   if(stable.some(Boolean))jointPositions=stable;else unstable=true;
   }
-  if(!selected)return {...empty,reason:unstable?'拐点位置对单个样本敏感':'未识别到稳定的低强度基线与斜率转折',lt1Reason:'未识别到稳定拐点',lt2Reason:'未识别到稳定拐点'};
+  if(jointPositions?.[0])first={model:two,index:0,positions:jointPositions[0]};
+  // Within an already supported three-phase curve, refine the baseline onset
+  // independently. Use it when it fits the observations better than the joint
+  // approximation; retain exact joint knots on genuinely piecewise-linear data.
+  for(const model of ones){
+   const reference=jointPositions?straight:noTurn;
+   if(reference.bic-model.bic<FIRST_BIC_GAIN)continue;
+   const stable=stableFit(scaled,model,!!jointPositions);
+   if(!stable){unstable=true;continue}
+   if(!first||model.sse<first.model.sse-1e-12)first={model,index:0,positions:stable[0]};
+  }
+  if(points.length>=7&&first){
+   second=stableUpper(scaled,first);
+   const anchor=first.model.knots[first.index],start=[...scaled].reverse().find(p=>p.x<=anchor+1e-9)?.x??scaled[0].x;
+   if(!second)secondReason=scaled.filter(p=>p.x>=start-1e-9).length<5?'高负荷读数不足':'未识别到第二处稳定拐点';
+  }
+  else if(jointPositions?.[1])second={model:two,index:1,positions:jointPositions[1]};
+  if(first&&second&&first.model.knots[first.index]>=second.model.knots[second.index])first=null;
+  if(!first&&!second)return {...empty,reason:unstable?'拐点位置对单个样本敏感':'未识别到稳定的低强度基线与斜率转折',lt1Reason:'未识别到稳定拐点',lt2Reason:'未识别到稳定拐点'};
+  // Threshold positions and concentration-curve fitting are separate: display
+  // the best supported curve rather than introducing an artificial visual kink.
+  const selected=[first?.model,jointPositions?two:null].filter(Boolean).sort((a,b)=>a.sse-b.sse)[0];
   const watts=x=>offset+x*range;
-  const turnpoint=i=>{
-   const power=watts(selected.knots[i]),low=watts(Math.min(...positions[i])),high=watts(Math.max(...positions[i]));
+  const turnpoint=result=>{
+   if(!result)return null;
+   const knot=result.model.knots[result.index],power=watts(knot),low=watts(Math.min(...result.positions)),high=watts(Math.max(...result.positions));
    // Show the observed power bracket, not a statistical confidence interval.
    const below=[...points].reverse().find(p=>p.x<Math.min(power,low)-1e-7)||points[0];
    const above=points.find(p=>p.x>Math.max(power,high)+1e-7)||points[points.length-1];
-   return {power:Lab.core.round(power,1),lactate:Lab.core.round(selected.predict(selected.knots[i]),2),between:[below.x,above.x]};
+   return {power:Lab.core.round(power,1),lactate:Lab.core.round(selected.predict(knot),2),between:[below.x,above.x]};
   };
   const fitXs=selected.kind==='exponential-onset'?[...Array.from({length:61},(_,i)=>i/60),...selected.knots].sort((a,b)=>a-b):[0,...selected.knots,1];
   const fitPoints=fitXs.map(x=>({x:watts(x),y:selected.predict(x)}));
-  return {...empty,model:selected.kind,lt1:turnpoint(0),lt2:selected.knots.length===2?turnpoint(1):null,fit:fitPoints,rmse:Lab.core.round(selected.rmse,3),reason:selected.knots.length===1?'仅识别到第一处稳定拐点':'',lt2Reason:selected.knots.length===1?(points.length<8?'数据不足（至少 8 个有效读数）':'未识别到第二处稳定拐点'):''};
+  const lt1=turnpoint(first),lt2=turnpoint(second);
+  const modelName=result=>!result?null:result.model.region?'upper-region-linear':result.model.kind==='exponential-onset'?'exponential-onset':result.model.knots.length===2?'three-phase-linear':'single-turn-linear';
+  const lt2Region=second?.model.region?[watts(second.model.region[0].x),watts(second.model.region[second.model.region.length-1].x)]:null;
+  const lt2Fit=second?[second.model.region?.[0].x??second.model.knots[0],second.model.knots[second.index],1].map(x=>({x:watts(x),y:second.model.predict(x)})):[];
+  return {...empty,model:selected.kind,lt1Model:modelName(first),lt2Model:modelName(second),lt2Region,lt1,lt2,fit:fitPoints,lt2Fit,rmse:Lab.core.round(selected.rmse,3),
+   reason:lt1&&lt2?'':lt2?'仅识别到第二处稳定拐点':'仅识别到第一处稳定拐点',
+   lt1Reason:lt1?'':'第一处拐点不稳定',lt2Reason:lt2?'':points.length<7?'数据不足（至少 7 个有效读数）':secondReason||'未识别到第二处稳定拐点'};
  }
  Lab.turnpoints={estimate,METHOD};
 })();
@@ -415,9 +494,9 @@ function svg(options){
  }).join('');
  return `<svg role="img" aria-label="${esc(options.description||'测试曲线')}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"><g>${grid.join('')}</g>${markers.join('')}${lines}<text x="${(pl+W-pr)/2}" y="${H-7}" text-anchor="middle" font-size="11" font-weight="600" fill="#829198">功率 / W</text><text x="16" y="${H/2}" text-anchor="middle" transform="rotate(-90 16 ${H/2})" font-size="11" font-weight="600" fill="#829198">${esc(options.yAxisLabel||'数值')}</text></svg>`;
 }
-function curve(stages,metric,markers=[],fit=[]){
+function curve(stages,metric,markers=[],fit=[],lt2Fit=[]){
  const filtered=stages.filter(s=>metric!=='lactate'||Lab.analysis.valid(s)).map(s=>({x:Number(s.power),y:Lab.analysis.value(s[metric]),quality:s.quality})).filter(p=>p.y!==null&&Number.isFinite(p.x)&&p.quality!=='exclude');
- return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered},...(fit.length?[{label:'分段线性拟合',points:fit,color:'#c98d56',dashed:true,showPoints:false}]:[])],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
+ return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered},...(fit.length?[{label:'拟合曲线',points:fit,color:'#c98d56',dashed:true,showPoints:false}]:[]),...(lt2Fit.length?[{label:'LT2 分区拟合',points:lt2Fit,color:'#709bbd',showPoints:false}]:[])],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
 }
 Lab.charts={svg,curve,palette};
 })();
@@ -501,7 +580,7 @@ function recordTable(s){
  </div>`;
 }
 function quickChart(s){const a=A.analyze(s.stages);
- return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span>LT1 / LT2 拐点估计</span></div></div>`;
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span>LT1 / LT2 拐点估计</span></div></div>`;
 }
 function renderWorkbench(){
  const s=active();
@@ -517,7 +596,7 @@ function renderAnalysis(){
  const markers=turnpointMarkers(a);
  return `${act}<div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(s.execution.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}
  ${introStats(s,a)}
- <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
+ <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit,a.lt2Fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">心率 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'hr')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>阶段心率</span></div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">RPE（0–10）× 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'rpe')}</div></div>
  <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
@@ -686,7 +765,7 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
 function duplicate(source){const s=source||active();if(!s)return;
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,model:a.model,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,model:a.model,lt1Model:a.lt1Model,lt2Model:a.lt2Model,lt2Region:a.lt2Region,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
@@ -717,7 +796,7 @@ function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell
  $('#print-report').innerHTML=`<h1>PaceLab 测试报告</h1><p>乳酸阶梯测试 · ${dateText(new Date().toISOString())}</p><hr style="border:0;border-top:1px solid #ddd;margin:15px 0">
  <h2>${esc(s.name)}</h2>${athleteLine(s)}<p>创建时间：${dateText(s.createdAt)}　|　协议：${s.protocol.startPower} W 起步 / +${s.protocol.increment} W / ${s.protocol.stageMinutes} 分钟 × ${s.stages.length} 级<br>采样方式：${s.protocol.samplingMode==='solo'?'单人间断采样':'协助连续采样'}　|　部位：${s.protocol.sampleSite==='earlobe'?'耳垂':'指尖'}<br>设备：${esc(s.metadata?.device||'未填写')}　|　环境：${esc(s.metadata?.environment||'未填写')}</p>
  <div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['LT1 拐点估计',a.lt1?fmt(a.lt1.power)+' W':'—'],['LT2 拐点估计',a.lt2?fmt(a.lt2.power)+' W':'—'],['最高有效乳酸',a.peak!==null?fmt(a.peak,1)+' mmol/L':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
- <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit)}
+ <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit)}
  <h2>阶段记录明细</h2><table class="data-table"><thead><tr><th>阶段</th><th>功率</th><th>时长</th><th>乳酸</th><th>心率</th><th>RPE</th><th>质量</th><th>备注</th></tr></thead><tbody>${s.stages.map((st,i)=>`<tr>${printCell(i+1)}${printCell(st.power+' W')}${printCell(st.durationSec/60+' min')}${printCell(st.lactate)}${printCell(st.hr)}${printCell(st.rpe)}${printCell(st.quality==='normal'?'正常':st.quality==='exclude'?'排除':'可疑')}${printCell(st.notes)}</tr>`).join('')}</tbody></table>
  <p>方法：拐点模型比较（${esc(a.method)}；${esc(a.model||'未选定模型')}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
  window.print();
@@ -786,7 +865,7 @@ function refreshDataDisplay(changed){
  const a=A.analyze(s.stages),stats=document.querySelector('.stats');
  if(stats)stats.outerHTML=introStats(s,a);
  const plot=$('#overview-lactate-chart');
- if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit);
+ if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit);
  if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',A.value(changed.value)!==null);
 }
 function handleChange(event){

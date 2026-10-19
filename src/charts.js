@@ -40,9 +40,9 @@ function svg(options){
  }).join('');
  return `<svg role="img" aria-label="${esc(options.description||'测试曲线')}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"><g>${grid.join('')}</g>${markers.join('')}${lines}<text x="${(pl+W-pr)/2}" y="${H-7}" text-anchor="middle" font-size="11" font-weight="600" fill="#829198">功率 / W</text><text x="16" y="${H/2}" text-anchor="middle" transform="rotate(-90 16 ${H/2})" font-size="11" font-weight="600" fill="#829198">${esc(options.yAxisLabel||'数值')}</text></svg>`;
 }
-function curve(stages,metric,markers=[],fit=[]){
+function curve(stages,metric,markers=[],fit=[],lt2Fit=[]){
  const filtered=stages.filter(s=>metric!=='lactate'||Lab.analysis.valid(s)).map(s=>({x:Number(s.power),y:Lab.analysis.value(s[metric]),quality:s.quality})).filter(p=>p.y!==null&&Number.isFinite(p.x)&&p.quality!=='exclude');
- return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered},...(fit.length?[{label:'分段线性拟合',points:fit,color:'#c98d56',dashed:true,showPoints:false}]:[])],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
+ return svg({series:[{label:metric==='lactate'?'血乳酸':metric==='hr'?'心率':'RPE',points:filtered},...(fit.length?[{label:'拟合曲线',points:fit,color:'#c98d56',dashed:true,showPoints:false}]:[]),...(lt2Fit.length?[{label:'LT2 分区拟合',points:lt2Fit,color:'#709bbd',showPoints:false}]:[])],yAxisLabel:metric==='lactate'?'血乳酸 / mmol/L':metric==='hr'?'心率 / bpm':'主观用力 / 0–10',minY:metric==='hr'?Math.max(0,Math.min(...filtered.map(x=>x.y))-20):0,markers,description:'功率与'+metric+'关系曲线'});
 }
 Lab.charts={svg,curve,palette};
 })();

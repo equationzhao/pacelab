@@ -1,0 +1,879 @@
+{
+  "engineSha256": {
+    "core": "0076c5b602e0345f900b6e078cb82a7e5ccc77cdc7bb7b7fdee56fc0d2dd8c4b",
+    "turnpoints": "aace7ac6042814adb7b0883565de3b9f25dcfd436026cb4651348b534d8001cc",
+    "analysis": "c9fc4ee4e4235cfd7873a5f9df2545dfa69129c7b09b1fb5f6353aec87c926cb"
+  },
+  "summary": {
+    "gridChecks": 51,
+    "maximumGridSseDifference": 1.4988010832439613e-15,
+    "emittedLt2Checks": 21,
+    "medianLt2GridDifferenceW": 2.141610956575107,
+    "maximumLt2GridDifferenceW": 5.867345339136364,
+    "caution": "Agreement with an independent numerical implementation of the same model is not physiological accuracy."
+  },
+  "results": [
+    {
+      "id": "N2022-P01",
+      "pythonGridPowers": [
+        197.5,
+        265.0
+      ],
+      "pythonGridSse": 0.051883763226296176,
+      "javascriptGridPowers": [
+        197.5,
+        265
+      ],
+      "javascriptGridSse": 0.051883763226296245,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 265.0,
+      "continuousPowers": [
+        265.0398892348052
+      ],
+      "continuousSse": 0.061203846153849634,
+      "lt2GridDifferenceW": 0.039889234805173146
+    },
+    {
+      "id": "N2022-P02",
+      "pythonGridPowers": [
+        212.5,
+        295.0
+      ],
+      "pythonGridSse": 0.052913401957961514,
+      "javascriptGridPowers": [
+        212.5,
+        295
+      ],
+      "javascriptGridSse": 0.05291340195796151,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 287.5,
+      "continuousPowers": [
+        291.11313945245405
+      ],
+      "continuousSse": 0.1936800000000019,
+      "lt2GridDifferenceW": 3.6131394524540497
+    },
+    {
+      "id": "N2022-P03",
+      "pythonGridPowers": [
+        242.5,
+        332.5
+      ],
+      "pythonGridSse": 0.19426465847328978,
+      "javascriptGridPowers": [
+        242.5,
+        332.5
+      ],
+      "javascriptGridSse": 0.19426465847328975,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P04",
+      "pythonGridPowers": [
+        235.0,
+        325.0
+      ],
+      "pythonGridSse": 0.08333260681114515,
+      "javascriptGridPowers": [
+        235,
+        325
+      ],
+      "javascriptGridSse": 0.08333260681114525,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 295.0,
+      "continuousPowers": [
+        298.3967617891483
+      ],
+      "continuousSse": 0.6629466666666661,
+      "lt2GridDifferenceW": 3.396761789148286
+    },
+    {
+      "id": "N2022-P05",
+      "pythonGridPowers": [
+        235.0,
+        325.0
+      ],
+      "pythonGridSse": 0.0869438043165463,
+      "javascriptGridPowers": [
+        235,
+        325
+      ],
+      "javascriptGridSse": 0.08694380431654625,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 317.5,
+      "continuousPowers": [
+        320.0215055049154
+      ],
+      "continuousSse": 0.09561666666666697,
+      "lt2GridDifferenceW": 2.5215055049154103
+    },
+    {
+      "id": "N2022-P06",
+      "pythonGridPowers": [
+        235.0,
+        325.0
+      ],
+      "pythonGridSse": 0.2916538947368421,
+      "javascriptGridPowers": [
+        235,
+        325
+      ],
+      "javascriptGridSse": 0.2916538947368417,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 295.0,
+      "continuousPowers": [
+        295.10752446486924
+      ],
+      "continuousSse": 1.3070585714285694,
+      "lt2GridDifferenceW": 0.10752446486924327
+    },
+    {
+      "id": "N2022-P07",
+      "pythonGridPowers": [
+        204.99999999999997,
+        265.0
+      ],
+      "pythonGridSse": 0.18028814275309535,
+      "javascriptGridPowers": [
+        204.99999999999997,
+        265
+      ],
+      "javascriptGridSse": 0.18028814275309551,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 235.0,
+      "continuousPowers": [
+        235.40960586127414
+      ],
+      "continuousSse": 0.5559138461538462,
+      "lt2GridDifferenceW": 0.40960586127414444
+    },
+    {
+      "id": "N2022-P08",
+      "pythonGridPowers": [
+        122.5,
+        182.5
+      ],
+      "pythonGridSse": 0.05100903074972261,
+      "javascriptGridPowers": [
+        122.5,
+        182.5
+      ],
+      "javascriptGridSse": 0.051009030749722295,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 175.0,
+      "continuousPowers": [
+        176.01522840296968
+      ],
+      "continuousSse": 0.11206666666666668,
+      "lt2GridDifferenceW": 1.015228402969683
+    },
+    {
+      "id": "N2022-P09",
+      "pythonGridPowers": [
+        145.0,
+        205.00000000000003
+      ],
+      "pythonGridSse": 0.020073025641025588,
+      "javascriptGridPowers": [
+        145,
+        205.00000000000003
+      ],
+      "javascriptGridSse": 0.020073025641025696,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P10",
+      "pythonGridPowers": [
+        212.5,
+        302.5
+      ],
+      "pythonGridSse": 0.1223231576470307,
+      "javascriptGridPowers": [
+        212.5,
+        302.5
+      ],
+      "javascriptGridSse": 0.1223231576470304,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P11",
+      "pythonGridPowers": [
+        175.0,
+        242.5
+      ],
+      "pythonGridSse": 0.0292501067463706,
+      "javascriptGridPowers": [
+        175,
+        242.5
+      ],
+      "javascriptGridSse": 0.029250106746370918,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P12",
+      "pythonGridPowers": [
+        115.0,
+        175.0
+      ],
+      "pythonGridSse": 0.013087410926365655,
+      "javascriptGridPowers": [
+        115,
+        175
+      ],
+      "javascriptGridSse": 0.013087410926365567,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P13",
+      "pythonGridPowers": [
+        257.5,
+        325.0
+      ],
+      "pythonGridSse": 0.19758341591316914,
+      "javascriptGridPowers": [
+        257.5,
+        325
+      ],
+      "javascriptGridSse": 0.19758341591316916,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 295.0,
+      "continuousPowers": [
+        298.265139363348
+      ],
+      "continuousSse": 0.4095797701149398,
+      "lt2GridDifferenceW": 3.2651393633479984
+    },
+    {
+      "id": "N2022-P14",
+      "pythonGridPowers": [
+        77.5,
+        152.5
+      ],
+      "pythonGridSse": 0.0053310862731400155,
+      "javascriptGridPowers": [
+        77.5,
+        152.5
+      ],
+      "javascriptGridSse": 0.005331086273139923,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 152.5,
+      "continuousPowers": [
+        150.65570036097725
+      ],
+      "continuousSse": 0.005130952380952438,
+      "lt2GridDifferenceW": 1.8442996390227506
+    },
+    {
+      "id": "N2022-P15",
+      "pythonGridPowers": [
+        175.0,
+        242.5
+      ],
+      "pythonGridSse": 0.0907899079931,
+      "javascriptGridPowers": [
+        175,
+        242.5
+      ],
+      "javascriptGridSse": 0.09078990799309986,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 235.0,
+      "continuousPowers": [
+        238.10971086704936
+      ],
+      "continuousSse": 0.2860166666666659,
+      "lt2GridDifferenceW": 3.1097108670493583
+    },
+    {
+      "id": "N2022-P16",
+      "pythonGridPowers": [
+        205.0,
+        265.0
+      ],
+      "pythonGridSse": 0.012416532258064585,
+      "javascriptGridPowers": [
+        205,
+        265
+      ],
+      "javascriptGridSse": 0.01241653225806459,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P17",
+      "pythonGridPowers": [
+        145.0,
+        197.5
+      ],
+      "pythonGridSse": 0.03269827759715099,
+      "javascriptGridPowers": [
+        145,
+        197.5
+      ],
+      "javascriptGridSse": 0.032698277597151104,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P18",
+      "pythonGridPowers": [
+        175.0,
+        242.5
+      ],
+      "pythonGridSse": 0.0651427099965432,
+      "javascriptGridPowers": [
+        175,
+        242.5
+      ],
+      "javascriptGridSse": 0.06514270999654292,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 235.0,
+      "continuousPowers": [
+        233.21785144523253
+      ],
+      "continuousSse": 0.8572300000000024,
+      "lt2GridDifferenceW": 1.782148554767474
+    },
+    {
+      "id": "N2022-P19",
+      "pythonGridPowers": [
+        182.5,
+        272.5
+      ],
+      "pythonGridSse": 0.30113208293871,
+      "javascriptGridPowers": [
+        182.5,
+        272.5
+      ],
+      "javascriptGridSse": 0.30113208293870936,
+      "emittedLt2": false
+    },
+    {
+      "id": "N2022-P20",
+      "pythonGridPowers": [
+        197.5,
+        265.0
+      ],
+      "pythonGridSse": 0.16892430060340083,
+      "javascriptGridPowers": [
+        197.5,
+        265
+      ],
+      "javascriptGridSse": 0.16892430060340075,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 235.0,
+      "continuousPowers": [
+        232.8583890434249
+      ],
+      "continuousSse": 0.7004699999999995,
+      "lt2GridDifferenceW": 2.141610956575107
+    },
+    {
+      "id": "N2022-P21",
+      "pythonGridPowers": [
+        115.0,
+        205.0
+      ],
+      "pythonGridSse": 0.03578947368421043,
+      "javascriptGridPowers": [
+        115,
+        205
+      ],
+      "javascriptGridSse": 0.03578947368421037,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 205.0,
+      "continuousPowers": [
+        203.53770759889227
+      ],
+      "continuousSse": 0.2732800000000004,
+      "lt2GridDifferenceW": 1.4622924011077316
+    },
+    {
+      "id": "N2022-P22",
+      "pythonGridPowers": [
+        205.0,
+        302.5
+      ],
+      "pythonGridSse": 0.1613060610137079,
+      "javascriptGridPowers": [
+        205,
+        302.5
+      ],
+      "javascriptGridSse": 0.16130606101370765,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 295.0,
+      "continuousPowers": [
+        298.36118078894407
+      ],
+      "continuousSse": 0.16959842105263362,
+      "lt2GridDifferenceW": 3.3611807889440684
+    },
+    {
+      "id": "N2022-P23",
+      "pythonGridPowers": [
+        242.5,
+        332.5
+      ],
+      "pythonGridSse": 0.21181503786256073,
+      "javascriptGridPowers": [
+        242.5,
+        332.5
+      ],
+      "javascriptGridSse": 0.211815037862561,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-FA-IMA-1",
+      "pythonGridPowers": [
+        150.0,
+        225.0
+      ],
+      "pythonGridSse": 0.056226415094339816,
+      "javascriptGridPowers": [
+        150,
+        225
+      ],
+      "javascriptGridSse": 0.05622641509433961,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-FA-IMA-2",
+      "pythonGridPowers": [
+        150.0,
+        300.0
+      ],
+      "pythonGridSse": 0.2036925647451962,
+      "javascriptGridPowers": [
+        150,
+        300
+      ],
+      "javascriptGridSse": 0.20369256474519595,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-RM-IMA-1",
+      "pythonGridPowers": [
+        200.0,
+        300.0
+      ],
+      "pythonGridSse": 0.005077197149643769,
+      "javascriptGridPowers": [
+        200,
+        300
+      ],
+      "javascriptGridSse": 0.005077197149643739,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-RM-IMA-2",
+      "pythonGridPowers": [
+        250.00000000000003,
+        362.5
+      ],
+      "pythonGridSse": 0.09292884818598073,
+      "javascriptGridPowers": [
+        250.00000000000003,
+        362.5
+      ],
+      "javascriptGridSse": 0.09292884818598096,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-IP-IMA-1",
+      "pythonGridPowers": [
+        250.00000000000003,
+        362.5
+      ],
+      "pythonGridSse": 0.17514353645649874,
+      "javascriptGridPowers": [
+        250.00000000000003,
+        362.5
+      ],
+      "javascriptGridSse": 0.1751435364564987,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-IP-IMA-2",
+      "pythonGridPowers": [
+        237.5,
+        362.5
+      ],
+      "pythonGridSse": 0.05645588346862925,
+      "javascriptGridPowers": [
+        237.5,
+        362.5
+      ],
+      "javascriptGridSse": 0.056455883468629134,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-MP-IMA-1",
+      "pythonGridPowers": [
+        187.5,
+        300.0
+      ],
+      "pythonGridSse": 0.008023774145616624,
+      "javascriptGridPowers": [
+        187.5,
+        300
+      ],
+      "javascriptGridSse": 0.008023774145616603,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-MP-IMA-2",
+      "pythonGridPowers": [
+        200.0,
+        312.5
+      ],
+      "pythonGridSse": 0.3489426292770764,
+      "javascriptGridPowers": [
+        200,
+        312.5
+      ],
+      "javascriptGridSse": 0.34894262927707714,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-EG-IMA-1",
+      "pythonGridPowers": [
+        162.5,
+        300.0
+      ],
+      "pythonGridSse": 0.07227139659032157,
+      "javascriptGridPowers": [
+        162.5,
+        300
+      ],
+      "javascriptGridSse": 0.07227139659032168,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 300.0,
+      "continuousPowers": [
+        298.21428519788003
+      ],
+      "continuousSse": 0.49200000000000005,
+      "lt2GridDifferenceW": 1.7857148021199691
+    },
+    {
+      "id": "P2016-EG-IMA-2",
+      "pythonGridPowers": [
+        162.5,
+        250.0
+      ],
+      "pythonGridSse": 0.03620612244897983,
+      "javascriptGridPowers": [
+        162.5,
+        250
+      ],
+      "javascriptGridSse": 0.0362061224489801,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-CM-IMA-1",
+      "pythonGridPowers": [
+        200.0,
+        300.0
+      ],
+      "pythonGridSse": 0.06374703087885958,
+      "javascriptGridPowers": [
+        200,
+        300
+      ],
+      "javascriptGridSse": 0.06374703087885951,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 262.5,
+      "continuousPowers": [
+        262.4999999918561
+      ],
+      "continuousSse": 0.36333333333333245,
+      "lt2GridDifferenceW": 8.143899776769103e-09
+    },
+    {
+      "id": "P2016-CM-IMA-2",
+      "pythonGridPowers": [
+        200.0,
+        312.5
+      ],
+      "pythonGridSse": 0.02641837368094343,
+      "javascriptGridPowers": [
+        200,
+        312.5
+      ],
+      "javascriptGridSse": 0.026418373680943297,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-JV-IMA-1",
+      "pythonGridPowers": [
+        250.00000000000003,
+        350.00000000000006
+      ],
+      "pythonGridSse": 0.1814102564102566,
+      "javascriptGridPowers": [
+        250.00000000000003,
+        350.00000000000006
+      ],
+      "javascriptGridSse": 0.18141025641025627,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 300.0,
+      "continuousPowers": [
+        305.1476733861424
+      ],
+      "continuousSse": 0.9458571428571448,
+      "lt2GridDifferenceW": 5.147673386142401
+    },
+    {
+      "id": "P2016-JV-IMA-2",
+      "pythonGridPowers": [
+        175.0,
+        300.0
+      ],
+      "pythonGridSse": 0.8101818181818187,
+      "javascriptGridPowers": [
+        175,
+        300
+      ],
+      "javascriptGridSse": 0.810181818181818,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-RC-IMA-1",
+      "pythonGridPowers": [
+        212.5,
+        312.5
+      ],
+      "pythonGridSse": 0.16272906502706722,
+      "javascriptGridPowers": [
+        212.5,
+        312.5
+      ],
+      "javascriptGridSse": 0.16272906502706871,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 300.0,
+      "continuousPowers": [
+        302.9661017375129
+      ],
+      "continuousSse": 0.37499999999999933,
+      "lt2GridDifferenceW": 2.966101737512872
+    },
+    {
+      "id": "P2016-RC-IMA-2",
+      "pythonGridPowers": [
+        212.5,
+        300.0
+      ],
+      "pythonGridSse": 0.014772398096420633,
+      "javascriptGridPowers": [
+        212.5,
+        300
+      ],
+      "javascriptGridSse": 0.014772398096420511,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-CJ-IMA-1",
+      "pythonGridPowers": [
+        212.5,
+        337.5
+      ],
+      "pythonGridSse": 0.018513811451951277,
+      "javascriptGridPowers": [
+        212.5,
+        337.5
+      ],
+      "javascriptGridSse": 0.01851381145195108,
+      "emittedLt2": true,
+      "lt2Model": "three-phase-linear",
+      "pythonLt2GridPower": 337.5,
+      "continuousPowers": [
+        216.66666362102714,
+        343.36734533913636
+      ],
+      "continuousSse": 0.001666666666668043,
+      "lt2GridDifferenceW": 5.867345339136364
+    },
+    {
+      "id": "P2016-CJ-IMA-2",
+      "pythonGridPowers": [
+        262.5,
+        362.5
+      ],
+      "pythonGridSse": 0.10841749925808676,
+      "javascriptGridPowers": [
+        262.5,
+        362.5
+      ],
+      "javascriptGridSse": 0.10841749925808675,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-IL-IMA-1",
+      "pythonGridPowers": [
+        212.5,
+        300.0
+      ],
+      "pythonGridSse": 0.003869537682077316,
+      "javascriptGridPowers": [
+        212.5,
+        300
+      ],
+      "javascriptGridSse": 0.0038695376820773513,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-IL-IMA-2",
+      "pythonGridPowers": [
+        200.0,
+        312.5
+      ],
+      "pythonGridSse": 0.05746333933624881,
+      "javascriptGridPowers": [
+        200,
+        312.5
+      ],
+      "javascriptGridSse": 0.05746333933624879,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-AP-IMA-1",
+      "pythonGridPowers": [
+        262.5,
+        350.0
+      ],
+      "pythonGridSse": 0.10655581395348833,
+      "javascriptGridPowers": [
+        262.5,
+        350
+      ],
+      "javascriptGridSse": 0.10655581395348833,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-AP-IMA-2",
+      "pythonGridPowers": [
+        250.00000000000003,
+        350.00000000000006
+      ],
+      "pythonGridSse": 0.012456410256410255,
+      "javascriptGridPowers": [
+        250.00000000000003,
+        350.00000000000006
+      ],
+      "javascriptGridSse": 0.01245641025641025,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-VR-IMA-1",
+      "pythonGridPowers": [
+        250.0,
+        337.5
+      ],
+      "pythonGridSse": 0.023150248051027677,
+      "javascriptGridPowers": [
+        250,
+        337.5
+      ],
+      "javascriptGridSse": 0.023150248051027632,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-VR-IMA-2",
+      "pythonGridPowers": [
+        237.5,
+        362.5
+      ],
+      "pythonGridSse": 0.10204255718035228,
+      "javascriptGridPowers": [
+        237.5,
+        362.5
+      ],
+      "javascriptGridSse": 0.10204255718035214,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-AS-IMA-1",
+      "pythonGridPowers": [
+        200.0,
+        350.0
+      ],
+      "pythonGridSse": 0.12255684528541808,
+      "javascriptGridPowers": [
+        200,
+        350
+      ],
+      "javascriptGridSse": 0.1225568452854183,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 350.0,
+      "continuousPowers": [
+        349.73118364945293
+      ],
+      "continuousSse": 0.6440000000000028,
+      "lt2GridDifferenceW": 0.26881635054706976
+    },
+    {
+      "id": "P2016-AS-IMA-2",
+      "pythonGridPowers": [
+        250.0,
+        362.5
+      ],
+      "pythonGridSse": 0.04639410760034163,
+      "javascriptGridPowers": [
+        250,
+        362.5
+      ],
+      "javascriptGridSse": 0.0463941076003417,
+      "emittedLt2": false
+    },
+    {
+      "id": "P2016-JC-IMA-1",
+      "pythonGridPowers": [
+        212.5,
+        362.5
+      ],
+      "pythonGridSse": 0.04462284899592207,
+      "javascriptGridPowers": [
+        212.5,
+        362.5
+      ],
+      "javascriptGridSse": 0.044622848995922025,
+      "emittedLt2": true,
+      "lt2Model": "upper-region-linear",
+      "pythonLt2GridPower": 350.0,
+      "continuousPowers": [
+        355.2197805983033
+      ],
+      "continuousSse": 0.13500000000000034,
+      "lt2GridDifferenceW": 5.219780598303316
+    },
+    {
+      "id": "P2016-JC-IMA-2",
+      "pythonGridPowers": [
+        250.0,
+        350.0
+      ],
+      "pythonGridSse": 0.014806451612903275,
+      "javascriptGridPowers": [
+        250,
+        350
+      ],
+      "javascriptGridSse": 0.014806451612903265,
+      "emittedLt2": false
+    }
+  ]
+}

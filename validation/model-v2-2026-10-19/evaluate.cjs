@@ -6,6 +6,7 @@ for(const name of ['core','turnpoints','analysis']){
  hashes[name]=crypto.createHash('sha256').update(source).digest('hex');vm.runInContext(source,context);
 }
 const {analysis}=context.window.Lab;
+if(context.window.Lab.turnpoints.METHOD!=='turnpoint-model-selection-v2')throw Error('Use the v2 engine from commit c1846ea to reproduce this archived report.');
 const inputs=JSON.parse(fs.readFileSync(path.join(prior,'inputs.json')));
 const old=JSON.parse(fs.readFileSync(path.join(prior,'results.json')));
 const compact=a=>({lt1:a.lt1,lt2:a.lt2,method:a.method,model:a.model,reason:a.reason,lt2Reason:a.lt2Reason,validCount:a.validCount,fit:a.fit});

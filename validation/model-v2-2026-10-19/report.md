@@ -1,5 +1,7 @@
 # PaceLab 拐点算法 v2 验证
 
+历史版本；当前算法与结果见 [v3 报告](../model-v3-2026-10-19/report.md)。
+
 被测方法：`turnpoint-model-selection-v2`。输入沿用[公开实测数据验证](../public-data-2026-10-19/report.md)中的 52 条原始曲线，保留源文件与逐点行号，没有修改观测数据或添加演示记录。
 
 ## 实测结果

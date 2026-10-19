@@ -18,7 +18,7 @@ test('recovers two known slope changes, not fixed concentration crossings',()=>{
  assert.equal(a.lt1.lactate,1);assert.equal(a.lt2.lactate,2.5);
  assert.deepEqual(plain(a.lt1.between),[150,200]);
  assert.deepEqual(plain(a.lt2.between),[225,275]);
- assert.equal(a.method,'turnpoint-model-selection-v2');assert.equal(a.fit.length,4);
+ assert.equal(a.method,'three-phase-turnpoints-v3');assert.equal(a.fit.length,4);
  assert.ok(!('fixed2' in a)&&!('fixed4' in a)&&!('delta05' in a));
 });
 test('translating the entire curve above 4 mmol/L preserves breakpoint power',()=>{
@@ -47,8 +47,8 @@ test('one supported turn does not manufacture LT2',()=>{
 test('insufficient data leaves results empty instead of falling back to 2/4 mmol',()=>{
  const a=analysis.analyze(stages([1,2,3,4,5]));
  assert.equal(a.lt1,null);assert.equal(a.lt2,null);assert.match(a.reason,/至少需要 6/);
- const b=analysis.analyze(stages([1,1,1,1,2,3,4]));
- assert.equal(b.lt1.power,175);assert.equal(b.lt2,null);assert.match(b.lt2Reason,/至少 8/);
+ const b=analysis.analyze(stages([1,1,1,2,3,4]));
+ assert.equal(b.lt1.power,150);assert.equal(b.lt2,null);assert.match(b.lt2Reason,/至少 7/);
 });
 test('requires enough independent support rather than filling every eligible result',()=>{
  const a=analysis.analyze(stages([1,1,1,2,3,4]));
@@ -67,9 +67,9 @@ test('a late bend without a near-flat initial region cannot be labelled LT1',()=
  const a=analysis.analyze(stages([2,2.5,3,3.5,5,6.5,8,9.5,11,12.5]));
  assert.equal(a.lt1,null);assert.equal(a.lt2,null);
 });
-test('insufficient sampling above the second turn cannot relabel LT2 as LT1',()=>{
+test('second-turn support cannot relabel the late bend as LT1',()=>{
  const a=analysis.analyze(stages([1,1,1,1.3,1.6,1.9,2.2,4.2,6.2]));
- assert.equal(a.lt1,null);assert.equal(a.lt2,null);
+ assert.equal(a.lt1.power,150);assert.equal(a.lt2.power,250);
 });
 test('a single terminal spike is rejected by leave-one-out stability',()=>{
  const a=analysis.analyze(stages([1,1,1,1,1,1,1,1,1,7]));
@@ -97,18 +97,19 @@ test('analysis does not mutate raw data and updates its cache after edits',()=>{
 test('CSV exports the actual method and estimated thresholds, leaving missing values blank',()=>{
  const session={id:'fixture',type:'lactate-step',name:'Fixture',createdAt:'2026-10-19',protocol:{},stages:stages(two)};
  const csv=core.sessionCsv(session);assert.match(csv,/"analysis_method","lt1_power_w","lt2_power_w"/);
- assert.match(csv,/"turnpoint-model-selection-v2","175","250"/);
- session.stages=stages([1,2,3]);assert.match(core.sessionCsv(session),/"turnpoint-model-selection-v2","",""/);
+ assert.match(csv,/"three-phase-turnpoints-v3","175","250"/);
+ session.stages=stages([1,2,3]);assert.match(core.sessionCsv(session),/"three-phase-turnpoints-v3","",""/);
 });
-test('a supported exponential onset yields LT1 without inventing an LT2',()=>{
+test('independent onset preserves LT1 when the upper curve has a three-phase estimate',()=>{
  const input=Array.from({length:10},(_,i)=>({power:100+25*i,lactate:Math.exp(Math.max(0,100+25*i-175)/65),quality:'normal'}));
  const a=analysis.analyze(input);
  assert.ok(a.lt1&&Math.abs(a.lt1.power-175)<=6.25);
- assert.equal(a.lt2,null);assert.equal(a.model,'exponential-onset');
+ assert.ok(a.lt2.power>250&&a.lt2.power<325);assert.equal(a.model,'exponential-onset');
+ assert.equal(a.lt1Model,'exponential-onset');assert.equal(a.lt2Model,'upper-region-linear');
  assert.ok(a.fit.length>10);
  for(const offset of [1,4]){
   const shifted=analysis.analyze(input.map(s=>({...s,lactate:s.lactate+offset})));
-  assert.equal(shifted.lt1.power,a.lt1.power);assert.equal(shifted.lt2,null);
+  assert.equal(shifted.lt1.power,a.lt1.power);assert.equal(shifted.lt2.power,a.lt2.power);
  }
 });
 test('continuous exponential growth and smooth curvature do not create a baseline onset',()=>{
@@ -120,6 +121,16 @@ test('continuous exponential growth and smooth curvature do not create a baselin
 test('a short high-load tail cannot turn the later rise into LT1',()=>{
  const a=analysis.analyze(stages(two).slice(0,8));
  assert.equal(a.lt1,null);assert.equal(a.lt2,null);
+});
+test('LT2 survives an unstable LT1 on a published cycling test',()=>{
+ // Pallarés 2016 supplementary workbook, CJ IMA 1. The missing 275 W sample
+ // remains missing; this guards independent detection, not physiological truth.
+ const input=[[75,1.9],[125,2],[175,2],[225,2.1],[325,2.6],[375,4.4],[425,7.1]]
+  .map(([power,lactate])=>({power,lactate,quality:'normal'}));
+ const a=analysis.analyze(input);
+ assert.equal(a.lt1,null);assert.equal(a.lt2.power,337.5);
+ assert.equal(a.lt2Model,'three-phase-linear');
+ assert.match(a.lt1Reason,/不稳定/);
 });
 test('empty readings and excluded records do not count as valid measurements',()=>{
  const input=stages([null,'',undefined,1,1,1]);input[5].quality='exclude';
