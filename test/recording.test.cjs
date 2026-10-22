@@ -3,6 +3,23 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const context=vm.createContext({window:{Lab:{}}});vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/recording.js'),'utf8'),context);
 const R=context.window.Lab.recording,t=Date.UTC(2026,9,22);
+const exportContext=vm.createContext({window:{}});for(const name of ['core','tests'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),exportContext);
+test('CSV exports raw readings, timestamps, athlete and resting data without computed fields',()=>{
+ const {core:C,tests:T}=exportContext.window.Lab,s=T.newSession({name:'Raw export',startPower:120,increment:15,stageMinutes:2,stageCount:3,samplingMode:'solo',preset:'fine'});
+ s.id='raw';s.athlete={name:'Rider',sex:'female',age:30,ftp:270};s.restingSample={lactate:1.1,recordedAt:'2026-10-22T00:00:00Z',skipped:false};
+ Object.assign(s.stages[0],{lactate:2.4,hr:151,rpe:0,quality:'exclude',notes:'comma, "quote"',sampleAt:t,recordedAt:'2026-10-22T00:02:00Z'});
+ const text=C.sessionCsv(s);assert.match(text,/lactate_mmol_l/);assert.match(text,/sample_time_ms/);assert.match(text,/"2.4","151","0","exclude"/);assert.match(text,/"comma, ""quote"""/);assert.match(text,/"Rider","female","30","270"/);assert.match(text,/"1.1","2026-10-22T00:00:00Z","false"/);
+ assert.doesNotMatch(text,/analysis|lt1|lt2|model|threshold/i);assert.equal(text.split('\r\n').length,4);assert.match(text.split('\r\n')[2],/"135","120","","",""/);
+ s.stages[1].notes='=1+2';assert.ok(C.sessionCsv(s).includes('"\'=1+2"'));
+});
+test('legacy protocol identifiers retain the same parameters using neutral preset names',()=>{
+ const T=exportContext.window.Lab.tests;
+ assert.equal(T.readGoalId('lt1'),'fine');assert.equal(T.readGoalId('both'),'standard');assert.equal(T.readGoalId('overview'),'short');assert.equal(T.readGoalId('constructor'),null);
+ assert.equal(JSON.stringify(T.generate(270,'lt1')),JSON.stringify(T.generate(270,'fine')));assert.equal(T.generate(270,'fine').startPower,120);assert.equal(T.generate(270,'fine').increment,15);
+ assert.doesNotMatch(T.goals.map(g=>g.name).join(' '),/LT|曲线|分析/);
+ const input={name:'Legacy',startPower:120,increment:15,stageMinutes:7,stageCount:10,preset:'lt1',goal:'lt1',samplingMode:'solo'};
+ const s=T.newSession(T.validInput(input));assert.equal(s.protocol.goal,'fine');assert.equal(s.protocol.preset,'fine');
+});
 function session(){return {execution:{stageIndex:0,phase:'effort',status:'running',startedAt:t,elapsedMs:0},stages:[{power:120},{power:140},{power:160}]}}
 test('records at most once per second, leaves gaps and excludes pause time',()=>{
  const s=session();R.beginRecording(s,t);assert.equal(R.captureRecord(s,{power:120},t),true);assert.equal(R.captureRecord(s,{power:140},t+250),false);

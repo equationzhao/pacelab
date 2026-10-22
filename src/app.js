@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const Lab=window.Lab;
-const C=Lab.core,A=Lab.analysis,T=Lab.tests,Charts=Lab.charts;
+const C=Lab.core,T=Lab.tests,Charts=Lab.charts;
 const D=Lab.devices,R=Lab.recording;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
@@ -9,7 +9,7 @@ let lastRecordingSave=0;
 let controlledSessionId=null;
 let lastTrainerStatus='disconnected';
 for(const session of db.sessions)if(R.recoverRecording(session))C.write(db);
-let view='workbench',preset='lt1',goal='lt1',search='',compareIds=[];
+let view='workbench',preset='fine',goal='fine',search='',scatterMetric='lactate';
 const $=q=>document.querySelector(q);
 const active=()=>db.sessions.find(s=>s.id===db.activeId)||null;
 const statusLabels={idle:'尚未开始',running:'测试进行中',paused:'已暂停',ready:'等待下一阶段',done:'已完成'};
@@ -18,13 +18,13 @@ const tag=(st)=>`<span class="status-pill ${statusClass[st]||''}"><span class="s
 const btn=(action,label,style='btn',extra='')=>`<button class="${style}" data-action="${action}" ${extra}>${label}</button>`;
 const sexLabel=sex=>({male:'男',female:'女',undisclosed:'不透露'}[sex]||'');
 function athleteText(a){return a?[a.name,sexLabel(a.sex),`${a.age} 岁`,`FTP ${a.ftp} W`].join(' · '):''}
-function athleteLine(s){const parts=[athleteText(s.athlete),T.goals.find(g=>g.id===s.protocol.goal)?.name].filter(Boolean);return parts.length?`<div class="athlete-line">${parts.map(esc).join(' · ')}</div>`:''}
+function athleteLine(s){const parts=[athleteText(s.athlete),T.goals.find(g=>g.id===T.readGoalId(s.protocol.goal))?.name].filter(Boolean);return parts.length?`<div class="athlete-line">${parts.map(esc).join(' · ')}</div>`:''}
 function persist(s=null){if(s)s.updatedAt=new Date().toISOString();C.write(db)}
 function setView(v){view=v;$('#layout')?.classList.remove('show-menu');render()}
 function toast(msg){const wrap=$('#toast-stack');const node=document.createElement('div');node.className='toast';node.textContent=msg;wrap.appendChild(node);setTimeout(()=>node.remove(),4200)}
 Lab.ui={toast};
 function renderSidebar(){
- const nav=[['workbench','测试工作台','activity'],['analysis','结果分析','chart'],['history','历史记录','history']];
+ const nav=[['workbench','测试工作台','activity'],['history','历史记录','history']];
  $('#sidebar').innerHTML=`<a class="brand" href="#" data-action="go-workbench"><div class="brand-mark">${icon('activity')}</div><div class="brand-name">PaceLab<span style="color:#c5ef87">.</span></div></a>
  ${nav.map(([v,label,ic])=>`<button class="nav-link ${view===v?'active':''}" data-action="view" data-view="${v}">${icon(ic)}<span>${label}</span>${v==='history'?`<span class="tiny-pill">${db.sessions.length}</span>`:''}</button>`).join('')}`;
 }
@@ -35,28 +35,22 @@ function heading(title,actions=''){
  return `<div class="heading"><h1>${esc(title)}</h1>${actions?`<div class="heading-actions">${actions}</div>`:''}</div>`;
 }
 
-function turnpointFoot(result,reason){return result?`定位区间 ${fmt(result.between[0])}–${fmt(result.between[1])} W`:(reason||'未识别')}
-function turnpointMarkers(a){return [['LT1',a.lt1,'#9da64a'],['LT2',a.lt2,'#709bbd']].filter(([,result])=>result).map(([label,result,color])=>({x:result.power,label,color,between:result.between}))}
-function metricCard(label,value,unit='',foot=''){return `<div class="card stat"><div class="stat-label">${esc(label)}</div><div class="stat-value">${value} <small>${esc(unit)}</small></div>${foot?`<div class="stat-foot">${esc(foot)}</div>`:''}</div>`}
-function introStats(s,a){
- return `<div class="stats">${metricCard('有效乳酸样本',a.validCount,`/ ${s.stages.length} 级`)}${metricCard('LT1 拐点估计',a.lt1?fmt(a.lt1.power):'—','W',turnpointFoot(a.lt1,a.lt1Reason))}${metricCard('LT2 拐点估计',a.lt2?fmt(a.lt2.power):'—','W',turnpointFoot(a.lt2,a.lt2Reason))}${metricCard('最高有效乳酸',a.peak===null?'—':fmt(a.peak,1),'mmol/L')}</div>`;
-}
 function elapsedNow(e){return Math.max(0,(e.elapsedMs||0)+(e.status==='running'&&e.startedAt?Math.max(0,Date.now()-e.startedAt):0))}
 function phaseDuration(s){return s.execution.phase==='sampling'?s.protocol.samplePauseSec*1000:s.stages[s.execution.stageIndex].durationSec*1000}
 function shouldShowSampleEntry(s){const e=s.execution;return ['running','paused','ready'].includes(e.status)&&(e.phase==='sampling'||phaseDuration(s)-elapsedNow(e)<=30000)}
 function renderSampleFields(s,index,prefix){const st=s.stages[index];return `<div class="sample-fields">${[['lactate','乳酸值','mmol/L','0.2','30','0.1'],['rpe','RPE','0–10','0','10','0.5']].map(([field,label,unit,min,max,step])=>`<div class="sample-field"><label for="${prefix}-${field}">${label}<span>${unit}</span></label><input id="${prefix}-${field}" aria-label="第${index+1}级${label}" aria-describedby="${prefix}-${field}-error" data-index="${index}" data-field="${field}" type="number" inputmode="decimal" min="${min}" max="${max}" step="${step}" placeholder="—" value="${esc(st[field]??'')}"><span class="sample-error" id="${prefix}-${field}-error" aria-live="polite"></span></div>`).join('')}</div>`}
-function renderSampleEntry(s){const index=s.execution.stageIndex;return `<div class="sample-entry" data-stage="${index}"><div class="sample-heading"><span class="sample-symbol">${icon('droplet')}</span><div><h2>准备采血 · 第 ${index+1} 级</h2><p>${s.stages[index].power} W · 记录本级乳酸值与 RPE</p></div></div>${renderSampleFields(s,index,'live-sample')}<p class="sample-note">输入后自动保存，计时结束${index===s.stages.length-1?'自动结束测试':'自动进入下一阶段'}。未填数据可稍后补录。</p></div>`}
-function describeRestingSample(s){const sample=s.restingSample;return sample?.skipped?'已跳过':A.value(sample?.lactate)===null?'未记录':`${fmt(sample.lactate,1)} mmol/L`}
+function renderSampleEntry(s){const index=s.execution.stageIndex;return `<div class="sample-entry" data-stage="${index}"><div class="sample-heading"><span class="sample-symbol">${icon('droplet')}</span><h2>准备采血 · 第 ${index+1} 级</h2></div>${renderSampleFields(s,index,'live-sample')}</div>`}
+function describeRestingSample(s){const sample=s.restingSample;return sample?.skipped?'已跳过':C.n(sample?.lactate)===null?'未记录':`${fmt(sample.lactate,1)} mmol/L`}
 function renderRestingSummary(s){return `<div class="resting-summary">${icon('droplet')}<span>静息乳酸 <strong>${describeRestingSample(s)}</strong></span></div>`}
-function renderRestingEntry(s){return `<div class="sample-entry resting-entry"><div class="sample-heading"><span class="sample-symbol">${icon('droplet')}</span><div><h2>静息乳酸测试</h2><p>开始第一级前，记录静息状态下的乳酸值</p></div></div><div class="sample-field"><label for="resting-lactate">静息乳酸值<span>mmol/L</span></label><input id="resting-lactate" type="number" inputmode="decimal" min="0.2" max="30" step="0.1" placeholder="—" aria-describedby="resting-lactate-error" value="${esc(s.restingSample?.lactate??'')}"><span class="sample-error" id="resting-lactate-error" aria-live="polite"></span></div><p class="sample-note">输入后自动保存。准备好后开始第一级，也可以直接跳过。</p></div>`}
+function renderRestingEntry(s){return `<div class="sample-entry resting-entry"><div class="sample-heading"><span class="sample-symbol">${icon('droplet')}</span><h2>静息乳酸测试</h2></div><div class="sample-field"><label for="resting-lactate">静息乳酸值<span>mmol/L</span></label><input id="resting-lactate" type="number" inputmode="decimal" min="0.2" max="30" step="0.1" placeholder="—" aria-describedby="resting-lactate-error" value="${esc(s.restingSample?.lactate??'')}"><span class="sample-error" id="resting-lactate-error" aria-live="polite"></span></div></div>`}
 function renderLive(s){
  const e=s.execution,st=s.stages[Math.min(e.stageIndex,s.stages.length-1)];
  const next=s.stages.slice(e.stageIndex,e.stageIndex+5);
  return `<div class="card card-pad"><div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(e.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}${e.status!=='idle'?renderRestingSummary(s):''}
   <div class="live-card"><div class="live-top"><span class="live-label">阶段计时</span><span class="live-mode">${s.protocol.samplingMode==='solo'?'单人 · 分段采样':'双人 · 连续采样'}</span></div>
-   ${e.status==='idle'?renderRestingEntry(s):`<div class="live-center"><div><div class="live-step" id="live-step">阶段 ${String(e.stageIndex+1).padStart(2,'0')} / ${String(s.stages.length).padStart(2,'0')}</div><div class="live-power" id="live-power">${st.power}<small>W</small></div></div><div class="timer-area"><label id="live-phase-label">${e.phase==='sampling'?'采样间隔':'当前阶段剩余'}</label><div id="live-time" class="timer">${fmtTime(st.durationSec*1000)}</div><div class="timer-label" id="live-total">目标 ${st.durationSec/60} 分钟 / 级</div></div></div>
+   ${e.status==='idle'?renderRestingEntry(s):`<div class="live-center"><div><div class="live-step" id="live-step">阶段 ${String(e.stageIndex+1).padStart(2,'0')} / ${String(s.stages.length).padStart(2,'0')}</div><div class="live-power" id="live-power">${st.power}<small>W</small></div></div><div class="timer-area"><label id="live-phase-label">${e.phase==='sampling'?'采样间隔':'当前阶段剩余'}</label><div id="live-time" class="timer">${fmtTime(st.durationSec*1000)}</div></div></div>
    <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
-   <div class="stage-progress"><div id="live-progress" class="stage-fill"></div></div><div id="live-hint" class="live-hint" hidden></div>
+   <div class="stage-progress"><div id="live-progress" class="stage-fill"></div></div>
    <div id="live-sample-entry">${shouldShowSampleEntry(s)?renderSampleEntry(s):''}</div>`}
    <div class="live-buttons" id="live-controls">${liveControls(s)}</div>
   </div>
@@ -64,7 +58,7 @@ function renderLive(s){
  </div>`;
 }
 function liveControls(s){const e=s.execution;
- if(e.status==='done')return btn('duplicate',icon('copy')+' 复制此测试','btn btn-primary')+btn('view-analysis',icon('chart')+' 查看结果','btn btn-dark');
+ if(e.status==='done')return btn('duplicate',icon('copy')+' 复制此测试','btn btn-primary')+(s.recording?btn('export-fit',icon('download')+' 导出 FIT','btn btn-dark'):btn('export-json',icon('download')+' 导出 JSON','btn btn-dark'));
  if(e.status==='idle')return btn('start',icon('play')+' 保存并开始','btn btn-primary')+btn('skip-resting','跳过并开始 '+icon('arrow'),'btn btn-dark');
  if(e.status==='ready')return btn('next',icon('arrow')+' '+(e.stageIndex<s.stages.length-1?'下一阶段':'结束测试'),'btn btn-primary')+btn('finish',icon('stop')+' 结束','btn btn-dark');
  return (e.status==='running'?btn('pause',icon('pause')+' 暂停','btn btn-primary'):btn('start',icon('play')+' 继续','btn btn-primary'))+btn('next',icon('arrow')+' 下一阶段','btn btn-dark')+btn('finish',icon('stop')+' 结束','btn btn-dark');
@@ -73,11 +67,11 @@ function fmtTime(ms){const secs=Math.ceil(Math.max(0,ms)/1000);const mm=Math.flo
 function sessionRows(s){
  const e=s.execution;
  return s.stages.map((st,i)=>{
- const lac=A.value(st.lactate);
+ const lac=C.n(st.lactate);
  return `<tr class="${i===e.stageIndex&&e.status!=='done'?'active-row':''}"><td><span class="table-index">${String(i+1).padStart(2,'0')}</span></td><td><strong>${st.power}</strong> W</td><td>${fmt(st.durationSec/60)} min</td>
  <td>${lac===null?'—':fmt(lac,1)}</td><td>${esc(st.hr??'—')}</td><td>${esc(st.rpe??'—')}</td>
  <td>${st.quality==='exclude'?'排除':st.quality==='suspect'?'可疑':'正常'}</td><td>${esc(st.notes||'—')}</td>
- <td>${btn('edit-sample',lac===null||A.value(st.rpe)===null?'补录':'修改','btn btn-sm',`data-index="${i}" aria-label="录入第${i+1}级数据"`)}</td></tr>`;
+ <td>${btn('edit-sample',lac===null||C.n(st.rpe)===null?'补录':'修改','btn btn-sm',`data-index="${i}" aria-label="录入第${i+1}级数据"`)}</td></tr>`;
  }).join('');
 }
 function recordTable(s){
@@ -87,7 +81,7 @@ function recordTable(s){
 }
 function renderDevices(s){
  const reason=D.describeSupport();
- return `<div class="card card-pad section-space device-panel"><div class="details"><div><div class="card-title">设备与活动记录</div><p class="card-sub">连接蓝牙设备后，开始测试即按秒记录实际读数</p></div>${btn('export-fit',icon('download')+' 导出 FIT','btn btn-sm',s.recording?'':'disabled')}</div><div class="device-grid">${Object.entries(D.specs).map(([kind,spec])=>`<div class="device-slot"><span>${esc(spec.label)}</span><strong id="device-${kind}-name"></strong><small id="device-${kind}-status"></small><button class="btn btn-sm" data-action="connect-device" data-kind="${kind}" id="device-${kind}-button" ${reason?'disabled':''}>连接</button></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div><div class="sensor-values">${[['power','实际功率','W'],['hr','实时心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong id="sensor-${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="recording-note" id="recording-note"></div><p class="device-help">${esc(reason||'功率计使用 Cycling Power，心率带使用 Heart Rate；ERG 骑行台需支持 FTMS 目标功率控制。运动阶段自动设定瓦数，采血间隔与暂停时暂停骑行台，结束时停止。优先记录独立功率计与心率带。')} 请保持页面在前台；设备超过 5 秒未更新时留空记录。关闭页面后请在设备端确认负载已停止。</p></div>`;
+ return `<div class="card card-pad section-space device-panel"><div class="details"><div class="card-title">设备与活动记录</div>${btn('export-fit',icon('download')+' 导出 FIT','btn btn-sm',s.recording?'':'disabled')}</div><div class="device-grid">${Object.entries(D.specs).map(([kind,spec])=>`<div class="device-slot"><span>${esc(spec.label)}</span><strong id="device-${kind}-name"></strong><small id="device-${kind}-status"></small><button class="btn btn-sm" data-action="connect-device" data-kind="${kind}" id="device-${kind}-button" ${reason?'disabled':''}>连接</button></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div><div class="sensor-values">${[['power','实际功率','W'],['hr','实时心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong id="sensor-${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="recording-note" id="recording-note"></div>${reason?`<p class="device-warning" role="status">${esc(reason)}</p>`:''}</div>`;
 }
 function paintDevices(){
  if(!$('#recording-note'))return;
@@ -98,9 +92,9 @@ function paintDevices(){
  }
  const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
  const s=active(),r=s?.recording;
- $('#recording-note').textContent=r?`${s.execution.status==='running'?'● 正在记录':s.execution.status==='done'?'记录已结束':'记录已暂停'} · ${r.records.length.toLocaleString()} 条 · 乳酸与 RPE 随对应阶段写入 FIT`:'开始测试后自动记录，暂停时停止记录。乳酸与 RPE 可补录后重新导出。';
+ $('#recording-note').textContent=r?`${s.execution.status==='running'?'记录中':s.execution.status==='done'?'记录完成':'记录暂停'} · ${r.records.length.toLocaleString()} 条`:'';
  const trainer=D.slots.trainer,erg=trainer.erg?.state;
- const message=erg?.error||trainer.error||(trainer.status==='connecting'?'正在连接 ERG 骑行台并获取控制权…':erg?.phase==='running'?`ERG 已确认目标 ${erg.power} W`:erg?.phase==='setting'?erg.desiredPower===null?'ERG 正在暂停 / 停止…':`ERG 正在设置 ${erg.desiredPower} W…`:erg?.phase==='paused'?'ERG 已暂停 · 下一运动阶段自动恢复':erg?.phase==='stopped'?'ERG 已停止':erg?.phase==='ready'?`ERG 已就绪 · ${erg.range.min}–${erg.range.max} W，步长 ${erg.range.step} W`:'ERG 未连接 · 可手动控制功率进行测试');
+ const message=erg?.error||trainer.error||(trainer.status==='connecting'?'ERG 连接中…':erg?.phase==='running'?`ERG · ${erg.power} W`:erg?.phase==='setting'?erg.desiredPower===null?'ERG 设置中…':`ERG 设置 ${erg.desiredPower} W…`:erg?.phase==='paused'?'ERG 已暂停':erg?.phase==='stopped'?'ERG 已停止':erg?.phase==='ready'?'ERG 就绪':'');
  document.querySelectorAll('[data-erg-status]').forEach(node=>{if(node.textContent!==message)node.textContent=message;node.classList.toggle('has-error',!!(erg?.error||trainer.error))});
 }
 function validateErgProtocol(s){
@@ -135,58 +129,38 @@ function captureActivity(now=Date.now()){
  paintDevices();
 }
 function pauseActive(){if(active()?.execution.status==='running')pause()}
-function quickChart(s){const a=A.analyze(s.stages);
- return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span>LT1 / LT2 拐点估计</span></div></div>`;
+function renderScatter(s){
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">数据散点图</div><div class="scatter-controls" aria-label="散点图数据">${[['lactate','乳酸'],['hr','心率'],['rpe','RPE']].map(([metric,label])=>btn('scatter-metric',label,`btn btn-sm ${metric===scatterMetric?'btn-soft':''}`,`data-metric="${metric}" aria-pressed="${metric===scatterMetric}"`)).join('')}</div></div><div class="chart-surface" id="scatter-chart">${Charts.renderScatter(s.stages,scatterMetric)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>正常</span><span><i class="legend-dot" style="background:#dc9053"></i>可疑</span><span><i class="legend-dot" style="background:#94a2a7"></i>标记排除</span></div></div>`;
 }
 function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+introStats(s,A.analyze(s.stages))+`<div class="grid-main"><div>${renderLive(s)}</div><div>${quickChart(s)}</div></div>`+renderDevices(s)+recordTable(s);
-}
-
-function renderAnalysis(){
- const s=active();const act=heading('结果分析',s?`${btn('export-fit',icon('download')+' FIT','btn',s.recording?'':'disabled')}${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:'');
- if(!s)return act+C.emptyState('暂无测试','','chart');
- const a=A.analyze(s.stages);
- const markers=turnpointMarkers(a);
- return `${act}<div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(s.execution.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}
- ${renderRestingSummary(s)}${introStats(s,a)}
- <div class="analysis-grid"><div class="card card-pad"><div class="card-heading"><div><div class="card-title">血乳酸 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'lactate',markers,a.fit,a.lt2Fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span><i class="legend-dot" style="background:#9da64a"></i>LT1</span><span><i class="legend-dot" style="background:#709bbd"></i>LT2</span></div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">心率 × 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'hr')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>阶段心率</span></div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">RPE（0–10）× 功率</div></div></div><div class="chart-surface">${Charts.curve(s.stages,'rpe')}</div></div>
- <div class="card card-pad"><div class="card-heading"><div><div class="card-title">数据质量检查</div></div></div><div class="quality-items">${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>`<div class="quality-item ${f.kind==='warn'?'warn':f.kind==='good'?'good':''}">${icon(f.kind==='warn'?'alert':f.kind==='good'?'check':'info')}<span>${esc(f.text)}</span></div>`).join('')}</div><div class="divider"></div><div class="report-details"><div class="report-detail"><small>采样模式</small><strong>${s.protocol.samplingMode==='solo'?'间断采样':'连续采样'}</strong></div><div class="report-detail"><small>采样部位</small><strong>${s.protocol.sampleSite==='fingertip'?'指尖':'耳垂'}</strong></div></div></div></div>`;
+ return head+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+recordTable(s);
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
- let compare='';
- if(db.sessions.filter(s=>A.analyze(s.stages).validCount>0).length>=2){
-  const candidates=db.sessions.filter(s=>A.analyze(s.stages).validCount>0);
-  compare=`<div class="card card-pad section-space"><div class="card-heading"><div><div class="card-title">历史曲线对比</div><div class="card-sub">最多选择 3 次</div></div></div>
-  <div class="comparison-picker">${candidates.slice(0,18).map((s,i)=>`<label title="${esc(s.name)}"><input type="checkbox" data-compare-id="${esc(s.id)}" ${compareIds.includes(s.id)?'checked':''}> <span>${esc(s.name)} · ${dateText(s.createdAt).slice(0,10)}</span></label>`).join('')}</div>
-  ${compareIds.length>=2?`<div class="chart-surface" style="height:345px">${Charts.svg({series:compareIds.map(id=>{const s=db.sessions.find(x=>x.id===id);return {label:s?.name||'未知测试',points:A.analyze(s?.stages||[]).points};}),minY:0,yAxisLabel:'血乳酸 / mmol/L'})}</div><div class="comparison-legend">${compareIds.map((id,i)=>{const s=db.sessions.find(x=>x.id===id);return `<span><i class="legend-dot" style="background:${Charts.palette[i]}"></i>${esc(s?.name||'测试')}</span>`}).join('')}</div>`:''}</div>`;
- }
  return `${heading('历史记录')}
-  ${db.sessions.length?`<div class="history-toolbar"><input class="form-control" id="history-search" type="search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>${compare}`:
+  ${db.sessions.length?`<div class="history-toolbar"><input class="form-control" id="history-search" type="search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>`:
   C.emptyState('暂无历史记录','','history',btn('new',icon('plus')+' 创建测试','btn btn-primary'))}`;
 }
 function renderHistoryItems(items){
  if(!items.length)return `<div class="card empty"><h3>没有匹配记录</h3></div>`;
  return [...items].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(s=>{
-  const a=A.analyze(s.stages);
-  return `<div class="history-item"><div class="history-icon">${icon(T.byId(s.type)?.icon||'activity')}</div><div class="history-main"><strong>${esc(s.name)}</strong><p>${dateText(s.createdAt)}${s.athlete?'　·　'+esc(s.athlete.name)+' · FTP '+s.athlete.ftp+' W':''}</p><div class="history-meta"><span>${tag(s.execution.status)}</span><span>${a.validCount}/${s.stages.length} 级有效读数</span><span class="code-pill">${s.protocol.startPower}W / +${s.protocol.increment}W / ${s.protocol.stageMinutes}min</span></div></div><div class="history-actions">${btn('open-session','打开','btn btn-sm','data-id="'+esc(s.id)+'"')}${btn('duplicate',icon('copy'),'btn btn-sm btn-icon','title="复制协议" data-id="'+esc(s.id)+'"')}${btn('export-json',icon('download'),'btn btn-sm btn-icon','title="导出 JSON" data-id="'+esc(s.id)+'"')}${btn('delete',icon('trash'),'btn btn-sm btn-icon','title="删除记录" data-id="'+esc(s.id)+'"')}</div></div>`;
+  const recorded=s.stages.filter(stage=>C.n(stage.lactate)!==null).length;
+  return `<div class="history-item"><div class="history-icon">${icon(T.byId(s.type)?.icon||'activity')}</div><div class="history-main"><strong>${esc(s.name)}</strong><p>${dateText(s.createdAt)}${s.athlete?'　·　'+esc(s.athlete.name)+' · FTP '+s.athlete.ftp+' W':''}</p><div class="history-meta"><span>${tag(s.execution.status)}</span><span>${recorded}/${s.stages.length} 级已录入乳酸</span><span class="code-pill">${s.protocol.startPower}W / +${s.protocol.increment}W / ${s.protocol.stageMinutes}min</span></div></div><div class="history-actions">${btn('open-session','打开','btn btn-sm','data-id="'+esc(s.id)+'"')}${btn('duplicate',icon('copy'),'btn btn-sm btn-icon','title="复制协议" data-id="'+esc(s.id)+'"')}${btn('export-fit',icon('download')+' FIT','btn btn-sm',`data-id="${esc(s.id)}" ${s.recording?'':'disabled'}`)}${btn('export-csv','CSV','btn btn-sm',`data-id="${esc(s.id)}"`)}${btn('export-json','JSON','btn btn-sm','title="导出 JSON" data-id="'+esc(s.id)+'"')}${btn('delete',icon('trash'),'btn btn-sm btn-icon','title="删除记录" data-id="'+esc(s.id)+'"')}</div></div>`;
  }).join('');
 }
 
 function render(){
  renderSidebar();renderTopbar();
  const root=$('#content');
- root.innerHTML=view==='analysis'?renderAnalysis():view==='history'?renderHistory():renderWorkbench();
+ root.innerHTML=view==='history'?renderHistory():renderWorkbench();
  syncErgControl();paintLive();paintDevices();
 }
 function newModal(){
  const a=T.readAthlete(db.athlete)||T.readAthlete(active()?.athlete)||{name:'',sex:'',age:'',ftp:''};
- preset='lt1';goal='lt1';
+ preset='fine';goal='fine';
  $('#modal-root').innerHTML=`<div class="modal-layer" data-dismiss="modal"><div class="modal protocol-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
  <div class="modal-head"><div><div class="modal-step" id="new-step-label">1 / 2 · 个人资料</div><h2 id="modal-title">新建乳酸阶梯测试</h2></div>${btn('close-modal',icon('x'),'btn btn-icon btn-ghost','aria-label="关闭"')}</div>
  <form id="new-form"><div class="modal-body">
@@ -198,7 +172,7 @@ function newModal(){
  </div></fieldset>
  <fieldset id="protocol-step" class="form-section" hidden disabled>
  <div class="athlete-summary" id="new-athlete-summary"></div>
- <h3 class="form-section-title">测试目的</h3>
+ <h3 class="form-section-title">阶梯方案</h3>
  <div class="preset-row goal-options">${T.goals.map(g=>`<button type="button" data-action="goal" data-goal="${g.id}" aria-pressed="${g.id===goal}" class="preset ${g.id===goal?'selected':''}"><strong>${esc(g.name)}</strong><span>${g.minIncrement}–${g.maxIncrement} W / ${g.stageMinutes} min / ${g.stageCount} 级</span></button>`).join('')}</div>
  <div class="form-grid">
   <div class="form-group span2"><label for="test-name">测试名称</label><input class="form-control" id="test-name" name="name" value="乳酸阶梯测试 · ${new Date().toLocaleDateString('zh-CN')}" maxlength="100" required></div>
@@ -254,7 +228,7 @@ function editModal(){const s=active();if(!s)return;
  $('#modal-root').innerHTML=`<div class="modal-layer" data-dismiss="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">测试信息</h2></div>${btn('close-modal',icon('x'),'btn btn-icon btn-ghost','aria-label="关闭"')}</div><div class="modal-body">${athleteLine(s)}<div class="form-grid"><div class="form-group span2"><label>测试名称</label><input class="form-control" id="edit-name" maxlength="100" value="${esc(s.name)}"></div><div class="form-group"><label>测试设备 / 功率计</label><input class="form-control" id="edit-device" maxlength="120" value="${esc(s.metadata?.device||'')}"></div><div class="form-group"><label>环境温度、散热等</label><input class="form-control" id="edit-environment" maxlength="120" value="${esc(s.metadata?.environment||'')}"></div><div class="form-group span2"><label>辅助人员（可选）</label><input class="form-control" id="edit-operator" maxlength="120" value="${esc(s.metadata?.operator||'')}"></div><div class="form-group span2"><label>备注</label><textarea class="form-control" id="edit-notes" rows="3" maxlength="1500">${esc(s.metadata?.notes||'')}</textarea></div></div></div><div class="modal-foot">${btn('close-modal','取消','btn')}${btn('save-edit',icon('check')+' 保存信息','btn btn-primary')}</div></div></div>`;
 }
 function openSampleModal(index){const s=active();if(!s||!Number.isInteger(index)||!s.stages[index])return;const st=s.stages[index];
- $('#modal-root').innerHTML=`<div class="modal-layer" data-dismiss="modal"><div class="modal sample-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">第 ${index+1} 级 · ${st.power} W</h2><p>记录乳酸值与 RPE，输入后自动保存。</p></div>${btn('close-modal',icon('x'),'btn btn-icon btn-ghost','aria-label="关闭"')}</div><div class="modal-body">${renderSampleFields(s,index,'edit-sample')}<details class="sample-extras"><summary>其他记录（可选）</summary><div class="form-grid"><div class="form-group"><label for="sample-hr">心率 bpm</label><input id="sample-hr" class="form-control" data-index="${index}" data-field="hr" type="number" min="30" max="240" step="1" value="${esc(st.hr??'')}"></div><div class="form-group"><label for="sample-quality">样本质量</label><select id="sample-quality" class="form-control" data-index="${index}" data-field="quality">${[['normal','正常'],['suspect','可疑'],['exclude','排除']].map(([value,label])=>`<option value="${value}" ${st.quality===value?'selected':''}>${label}</option>`).join('')}</select></div><div class="form-group span2"><label for="sample-notes">备注</label><input id="sample-notes" class="form-control" data-index="${index}" data-field="notes" maxlength="200" value="${esc(st.notes||'')}"></div></div></details></div><div class="modal-foot">${btn('close-modal','完成','btn btn-primary')}</div></div></div>`;
+ $('#modal-root').innerHTML=`<div class="modal-layer" data-dismiss="modal"><div class="modal sample-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h2 id="modal-title">第 ${index+1} 级 · ${st.power} W</h2>${btn('close-modal',icon('x'),'btn btn-icon btn-ghost','aria-label="关闭"')}</div><div class="modal-body">${renderSampleFields(s,index,'edit-sample')}<details class="sample-extras"><summary>其他记录</summary><div class="form-grid"><div class="form-group"><label for="sample-hr">心率 bpm</label><input id="sample-hr" class="form-control" data-index="${index}" data-field="hr" type="number" min="30" max="240" step="1" value="${esc(st.hr??'')}"></div><div class="form-group"><label for="sample-quality">样本质量</label><select id="sample-quality" class="form-control" data-index="${index}" data-field="quality">${[['normal','正常'],['suspect','可疑'],['exclude','排除']].map(([value,label])=>`<option value="${value}" ${st.quality===value?'selected':''}>${label}</option>`).join('')}</select></div><div class="form-group span2"><label for="sample-notes">备注</label><input id="sample-notes" class="form-control" data-index="${index}" data-field="notes" maxlength="200" value="${esc(st.notes||'')}"></div></div></details></div><div class="modal-foot">${btn('close-modal','完成','btn btn-primary')}</div></div></div>`;
  $('#edit-sample-lactate').focus();
 }
 function closeModal(){$('#modal-root').innerHTML=''}
@@ -317,13 +291,6 @@ function paintLive(){const s=active(),timer=$('#live-time');if(!s||!timer||view!
  timer.textContent=fmtTime(e.status==='idle'?phaseDuration(s):e.status==='done'?0:remain);
  const progress=$('#live-progress');if(progress)progress.style.width=(e.status==='done'?100:Math.min(100,Math.max(0,elapsed/phaseDuration(s)*100)))+'%';
  const title=$('#live-phase-label');if(title)title.textContent=e.phase==='sampling'?'采样间隔剩余':'当前阶段剩余';
- const afterSampling=e.stageIndex===s.stages.length-1?'结束测试':'进入下一阶段';
- const total=$('#live-total');if(total)total.textContent=e.status==='done'?'测试已完成':e.phase==='sampling'?`采样计时结束后自动${afterSampling}`:`目标 ${st.durationSec/60} 分钟 / 级`;
- const hint=$('#live-hint');if(hint){
-  const message=e.status==='ready'?'采样已结束，点击下一阶段继续':e.status!=='running'?'':e.phase==='sampling'?`正在采样 · 间隔结束后自动${afterSampling}`:remain<=30000?'准备采血 · 请记录本级数据':remain<=60000?'阶段剩余不足 1 分钟':'';
-  hint.hidden=!message;
-  hint.textContent=message;
- }
  const entry=$('#live-sample-entry');if(entry){
   const visible=shouldShowSampleEntry(s);
   if(visible&&!entry.firstElementChild)entry.innerHTML=renderSampleEntry(s);
@@ -350,12 +317,12 @@ function showSampleError(target){target.setAttribute('aria-invalid',String(!!tar
 function duplicate(source){const s=source||active();if(!s)return;pauseActive();
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function exportedSession(s){const a=A.analyze(s.stages),copy={...s,execution:{...s.execution}};
+function exportedSession(s){const copy={id:s.id,type:s.type,schemaVersion:s.schemaVersion,name:s.name,createdAt:s.createdAt,updatedAt:s.updatedAt,athlete:s.athlete,protocol:{...s.protocol,goal:T.readGoalId(s.protocol.goal),preset:T.readGoalId(s.protocol.preset)||s.protocol.preset},metadata:s.metadata,restingSample:s.restingSample??null,stages:s.stages,execution:{...s.execution},recording:s.recording??null};
  if(s.execution.status==='running'){
   copy.execution={...s.execution,status:'paused',elapsedMs:elapsedNow(s.execution),startedAt:null};
   if(s.recording){copy.recording={...s.recording,spans:s.recording.spans.map(span=>({...span}))};R.stopRecording(copy)}
  }
- return {...copy,analysis:{method:a.method,model:a.model,lt1Model:a.lt1Model,lt2Model:a.lt2Model,lt2Region:a.lt2Region,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+ return copy}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
 function downloadFit(s){if(!s)return;try{C.download(Lab.fit.encodeSession(s),`PaceLab_${safeFile(s.name)}.fit`,'application/octet-stream')}catch(error){toast(error.message)}}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
@@ -370,7 +337,7 @@ function importSessions(data){
   const s=T.newSession(v);s.id=uid();s.createdAt=Number.isFinite(Date.parse(old.createdAt))?old.createdAt:new Date().toISOString();
   s.name=v.name+([...db.sessions,...additions].some(x=>x.name===v.name)?'（导入）':'');
   s.metadata={notes:String(old.metadata?.notes||'').slice(0,1500),device:String(old.metadata?.device||'').slice(0,120),environment:String(old.metadata?.environment||'').slice(0,120),operator:String(old.metadata?.operator||'').slice(0,120)};
-  const resting=old.restingSample,lactate=A.value(resting?.lactate);
+  const resting=old.restingSample,lactate=C.n(resting?.lactate);
   if(resting?.skipped===true)s.restingSample={lactate:null,recordedAt:null,skipped:true};
   else if(lactate!==null&&lactate>=.2&&lactate<=30)s.restingSample={lactate,recordedAt:Number.isFinite(Date.parse(resting.recordedAt))?resting.recordedAt:null,skipped:false};
   s.stages.forEach((stage,i)=>{const original=old.stages[i]||{};
@@ -387,15 +354,6 @@ function importSessions(data){
  }
  if(!additions.length)throw Error('文件中没有可以导入的乳酸阶梯测试');
  pauseActive();db.sessions.push(...additions);db.activeId=additions.at(-1).id;persist();view='history';render();
-}
-function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell=(v)=>`<td>${esc(v??'—')}</td>`;
- $('#print-report').innerHTML=`<h1>PaceLab 测试报告</h1><p>乳酸阶梯测试 · ${dateText(new Date().toISOString())}</p><hr style="border:0;border-top:1px solid #ddd;margin:15px 0">
- <h2>${esc(s.name)}</h2>${athleteLine(s)}<p>创建时间：${dateText(s.createdAt)}　|　协议：${s.protocol.startPower} W 起步 / +${s.protocol.increment} W / ${s.protocol.stageMinutes} 分钟 × ${s.stages.length} 级<br>采样方式：${s.protocol.samplingMode==='solo'?'单人间断采样':'协助连续采样'}　|　部位：${s.protocol.sampleSite==='earlobe'?'耳垂':'指尖'}<br>设备：${esc(s.metadata?.device||'未填写')}　|　环境：${esc(s.metadata?.environment||'未填写')}</p>
- <p>静息乳酸：${describeRestingSample(s)}</p><div class="print-grid">${[['有效样本',String(a.validCount)+' / '+s.stages.length],['LT1 拐点估计',a.lt1?fmt(a.lt1.power)+' W':'—'],['LT2 拐点估计',a.lt2?fmt(a.lt2.power)+' W':'—'],['最高有效乳酸',a.peak!==null?fmt(a.peak,1)+' mmol/L':'—']].map(([l,v])=>`<div class="print-box"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>
- <h2>乳酸-功率曲线</h2>${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit)}
- <h2>阶段记录明细</h2><table class="data-table"><thead><tr><th>阶段</th><th>功率</th><th>时长</th><th>乳酸</th><th>心率</th><th>RPE</th><th>质量</th><th>备注</th></tr></thead><tbody>${s.stages.map((st,i)=>`<tr>${printCell(i+1)}${printCell(st.power+' W')}${printCell(st.durationSec/60+' min')}${printCell(st.lactate)}${printCell(st.hr)}${printCell(st.rpe)}${printCell(st.quality==='normal'?'正常':st.quality==='exclude'?'排除':'可疑')}${printCell(st.notes)}</tr>`).join('')}</tbody></table>
- <p>方法：拐点模型比较（${esc(a.method)}；${esc(a.model||'未选定模型')}）。LT1：${esc(turnpointFoot(a.lt1,a.lt1Reason))}；LT2：${esc(turnpointFoot(a.lt2,a.lt2Reason))}。拐点为模型估计，定位区间不是置信区间。</p><p>测试备注：${esc(s.metadata?.notes||'无')}<br>数据质量：${(a.flags.length?a.flags:[{kind:'neutral',text:'无异常记录'}]).map(f=>esc(f.text)).join('；')||'无'}</p>`;
- window.print();
 }
 function createFromForm(){
  const form=$('#new-form');if(!form)return;
@@ -440,19 +398,18 @@ function handleClick(event){
   case 'finish':finish();break;
   case 'duplicate':duplicate(getSession());break;
   case 'open-session':{const s=getSession();if(!s)return;if(s.id!==db.activeId)pauseActive();db.activeId=s.id;view='workbench';persist();render();break;}
-  case 'view-analysis':setView('analysis');break;
+  case 'scatter-metric':if(['lactate','hr','rpe'].includes(el.dataset.metric)){scatterMetric=el.dataset.metric;$('#scatter-card').innerHTML=renderScatter(active())}break;
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
   case 'export-json':downloadJson(getSession());break;
   case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
-  case 'print':printReport(getSession());break;
   case 'delete':{
    const s=getSession();if(!s)return;
    if(!window.confirm(`删除「${s.name}」？此操作无法撤销。`))return;
    if(db.activeId===s.id)pauseActive();
    db.sessions=db.sessions.filter(x=>x.id!==s.id);
    if(db.activeId===s.id)db.activeId=db.sessions[db.sessions.length-1]?.id||null;
-   compareIds=compareIds.filter(id=>id!==s.id);persist();render();break;
+   persist();render();break;
   }
  }
 }
@@ -465,22 +422,14 @@ function handleInput(event){
 }
 function refreshDataDisplay(changed){
  const s=active();if(!s||view!=='workbench')return;
- const a=A.analyze(s.stages),stats=document.querySelector('.stats');
- if(stats)stats.outerHTML=introStats(s,a);
- const plot=$('#overview-lactate-chart');
- if(plot)plot.innerHTML=Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit);
+ const plot=$('#scatter-chart');if(plot)plot.innerHTML=Charts.renderScatter(s.stages,scatterMetric);
  const rows=$('#record-rows');if(rows)rows.innerHTML=sessionRows(s);
- if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',A.value(changed.value)!==null);
+ if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',C.n(changed.value)!==null);
 }
 function handleChange(event){
  const target=event.target;
  if(target.name==='samplingMode'&&target.closest('#new-form')){const solo=target.value==='solo';$('#sample-pause-group').hidden=!solo;$('#sample-pause').disabled=!solo;return}
  if(target.dataset?.field){if(target.validationMessage){toast(target.validationMessage);return}refreshDataDisplay(target);return}
- if(target.dataset?.compareId){
-  const id=target.dataset.compareId;
-  if(target.checked){if(compareIds.length>=3){target.checked=false;toast('最多对比 3 次测试');return}compareIds.push(id)}else compareIds=compareIds.filter(x=>x!==id);
-  render();return;
- }
 }
 async function handleImport(event){const file=event.target.files?.[0];event.target.value='';if(!file)return;
  if(file.size>32*1024*1024)return toast('JSON 文件过大，单次最大 32 MB');
