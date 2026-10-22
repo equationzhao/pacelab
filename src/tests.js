@@ -36,6 +36,7 @@
       athlete:input.athlete?{...input.athlete}:null,
       protocol:{preset:input.preset||'custom',goal:input.goal||null,startPower:input.startPower,increment:input.increment,stageMinutes:input.stageMinutes,stageCount:input.stageCount,samplingMode:input.samplingMode,samplePauseSec:input.samplePauseSec||45,sampleSite:input.sampleSite||'earlobe',beep:!!input.beep},
       metadata:{notes:'',device:'',environment:'',operator:''},
+      restingSample:null,
       stages,
       execution:{stageIndex:0,phase:'effort',status:'idle',elapsedMs:0,startedAt:null,finishedAt:null}
     };

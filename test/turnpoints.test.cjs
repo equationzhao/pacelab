@@ -99,6 +99,14 @@ test('CSV exports the actual method and estimated thresholds, leaving missing va
  const csv=core.sessionCsv(session);assert.match(csv,/"analysis_method","lt1_power_w","lt2_power_w"/);
  assert.match(csv,/"three-phase-turnpoints-v3","175","250"/);
  session.stages=stages([1,2,3]);assert.match(core.sessionCsv(session),/"three-phase-turnpoints-v3","",""/);
+ const before=plain(analysis.analyze(session.stages));
+ session.restingSample={lactate:1.2,recordedAt:'2026-10-22T04:00:00Z',skipped:false};
+ const restingCsv=core.sessionCsv(session);
+ assert.match(restingCsv,/"resting_lactate_mmol_l","resting_sample_recorded_at","resting_sample_skipped"/);
+ assert.match(restingCsv,/"1.2","2026-10-22T04:00:00Z","false"/);
+ assert.deepEqual(plain(analysis.analyze(session.stages)),before);
+ session.restingSample={lactate:null,recordedAt:null,skipped:true};
+ assert.match(core.sessionCsv(session),/"","","true"/);
 });
 test('independent onset preserves LT1 when the upper curve has a three-phase estimate',()=>{
  const input=Array.from({length:10},(_,i)=>({power:100+25*i,lactate:Math.exp(Math.max(0,100+25*i-175)/65),quality:'normal'}));
