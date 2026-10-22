@@ -27,6 +27,10 @@
 .sample-entry{margin-top:20px;padding:22px;border:1px solid #54785e;border-radius:14px;background:linear-gradient(135deg,rgba(197,242,123,.12),rgba(197,242,123,.03));position:relative;z-index:1}.sample-heading{display:flex;align-items:center;gap:12px;margin-bottom:20px}.sample-symbol{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#c5f27b;color:#18372e;flex-shrink:0}.sample-heading h2{font-size:18px;letter-spacing:-.4px}.sample-heading p{font-size:12px;color:#bed0c7;margin-top:4px}.sample-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}.sample-field{min-width:0}.sample-field label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;font-weight:750;margin-bottom:9px}.sample-field label span{font-size:11px;font-weight:500;opacity:.7}.sample-field input{width:100%;min-width:0;min-height:84px;padding:12px 16px;border:2px solid #d5e7cf;border-radius:12px;background:#f9fcf5;color:#173d30;font-size:42px;line-height:1.2;font-weight:750;font-variant-numeric:tabular-nums}.sample-field input::placeholder{color:#a5b6a3}.sample-field input:focus{outline:3px solid #c5f27b55;border-color:#9bd269}.sample-field input[aria-invalid="true"]{border-color:#e69b77}.sample-error{display:block;color:#f6b99b;font-size:11px;margin-top:6px;line-height:1.6}.sample-error:empty{display:none}.sample-note{font-size:11px;color:#bed0c7;line-height:1.8;margin-top:16px}.sample-modal .sample-error{color:#a64a3f}.sample-extras{margin-top:24px;font-size:12px;color:#6a7b82}.sample-extras summary{cursor:pointer;padding:10px 0}.sample-extras .form-grid{margin-top:12px}
 @media(max-width:510px){.sample-entry{padding:16px;margin-top:16px}.sample-fields{gap:12px}.sample-field label{font-size:13px;align-items:start;flex-direction:column;gap:2px}.sample-field input{min-height:76px;font-size:34px;padding:10px}.sample-heading h2{font-size:16px}.sample-heading p{font-size:11px}.sample-note{font-size:11px}}
 .resting-entry{margin-top:24px}.resting-summary{display:flex;align-items:center;gap:8px;color:#657780;font-size:12px;margin-bottom:18px}.resting-summary .icon{color:var(--green);width:16px;height:16px}.resting-summary strong{color:#31594c;font-weight:750;margin-left:8px}
+.device-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}.device-slot{display:grid;grid-template-columns:1fr auto;gap:8px 12px;padding:16px;background:#f5f7f6;border:1px solid #e4eae6;border-radius:12px;min-width:0}.device-slot>span{font-size:12px;color:#66756e}.device-slot>strong{grid-column:1/-1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.device-slot>small{font-size:12px;color:#61746b;align-self:center}.device-slot>button{grid-column:2;grid-row:3}.sensor-values{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0;padding:20px;background:#122c25;border-radius:12px;color:#edf8ef}.sensor-values>div{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px}.sensor-values span{width:100%;font-size:11px;color:#b4cbbd}.sensor-values strong{font-size:30px;line-height:1.3;font-variant-numeric:tabular-nums}.sensor-values small{font-size:11px;color:#b4cbbd}.recording-note{font-size:12px;color:#23735b;line-height:1.6}.device-help{font-size:11px;line-height:1.8;color:#76877e;margin:10px 0 0}.device-panel .card-sub{margin:6px 0 0}.device-panel button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:640px){.device-grid{grid-template-columns:1fr}.device-slot{grid-template-columns:70px minmax(0,1fr) auto;align-items:center}.device-slot>strong{grid-column:2;grid-row:1;font-size:13px}.device-slot>small{grid-column:2;grid-row:2}.device-slot>button{grid-column:3;grid-row:1/3}.sensor-values{gap:10px;padding:16px}.sensor-values strong{font-size:26px}.device-panel>.details{align-items:flex-start;gap:12px}}
+.device-slot>button{min-width:72px;min-height:40px}
+.live-sensors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:15px 0;margin-top:10px;border-top:1px solid #ffffff20}.live-sensors>div{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap}.live-sensors span{width:100%;font-size:11px;color:#b9cfc6}.live-sensors strong{font-size:24px;line-height:1.4;font-variant-numeric:tabular-nums}.live-sensors small{font-size:10px;color:#b9cfc6}@media(max-width:640px){.live-sensors strong{font-size:21px}}
+.erg-status{font-size:12px;line-height:1.7;color:#23735b;margin:12px 0}.live-card .erg-status{color:#c5ef87;margin:2px 0 12px}.erg-status.has-error{color:#a04832}.live-card .erg-status.has-error{color:#ffc8ac}@media(max-width:640px){.device-slot{grid-template-columns:78px minmax(0,1fr) auto}}
 
 </style>
 </head>
@@ -510,10 +514,396 @@ Lab.charts={svg,curve,palette};
   <script>
 (function(){
 'use strict';
+// Bluetooth FTMS 1.0.1: Control Point 2AD9, Feature 2ACC, Power Range 2AD8, Status 2ADA.
+// https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0-1/
+const Lab=window.Lab;
+function readCapabilities(features,range){
+ if(features.byteLength<8||!(features.getUint32(4,true)&8))throw Error('此设备不支持 FTMS ERG 目标功率控制');
+ if(range.byteLength<6)throw Error('骑行台功率范围数据不完整');
+ const min=range.getInt16(0,true),max=range.getInt16(2,true),step=range.getUint16(4,true)||1;
+ if(max<min||max<=0||step>max-min&&max!==min)throw Error('骑行台功率范围无效');
+ return {min,max,step};
+}
+function validatePower(range,power){
+ if(!Number.isInteger(power)||power<range.min||power>range.max||(power-range.min)%range.step!==0)throw Error(`目标 ${power} W 不受骑行台支持（${range.min}–${range.max} W，步长 ${range.step} W）`);
+}
+function createController(service,onChange=()=>{},options={}){
+ const state={phase:'connecting',power:null,desiredPower:null,error:'',range:null,requiresReconnect:false};
+ let point,status,pending=null,disposed=false,hasControl=false,machineRunning=false,busy=false,work=Promise.resolve();
+ let desired={mode:'idle',power:null},version=0,applied=0;
+ const emit=()=>onChange();
+ const cancelled=()=>Error('ERG 骑行台连接已断开；请在设备端确认负载已停止');
+ function settleCommand(error){if(!pending)return;const current=pending;pending=null;clearTimeout(current.timer);error?current.reject(error):current.resolve()}
+ function sendCommand(opcode,parameters=[]){
+  if(disposed)return Promise.reject(cancelled());
+  if(state.requiresReconnect)return Promise.reject(Error('ERG 控制响应超时，请在设备端停止负载后重新连接'));
+  if(pending)return Promise.reject(Error('上一条 ERG 指令尚未完成'));
+  return new Promise((resolve,reject)=>{
+   const fail=error=>{if(pending===command)settleCommand(error)};
+   const command={opcode,resolve,reject,timer:null,written:false,acknowledged:false,resultError:null};
+   pending=command;command.timer=setTimeout(()=>{
+    if(pending!==command)return;state.requiresReconnect=true;fail(Error('ERG 控制响应超时，请在设备端停止负载后重新连接'));
+   },options.timeoutMs??5000);
+   try{
+    const write=point.writeValueWithResponse||point.writeValue;
+    if(!write)throw Error('浏览器不支持骑行台控制写入');
+    Promise.resolve(write.call(point,Uint8Array.from([opcode,...parameters]))).then(()=>{
+     if(pending!==command)return;command.written=true;if(command.acknowledged)settleCommand(command.resultError);
+    }).catch(fail);
+   }catch(error){fail(error)}
+  });
+ }
+ function handleResponse(event){
+  const value=event.target.value;if(value.byteLength<3||value.getUint8(0)!==0x80||!pending||value.getUint8(1)!==pending.opcode)return;
+  const result=value.getUint8(2);pending.acknowledged=true;if(result===5)hasControl=false;
+  const reason=({2:'设备不支持此控制指令',3:'设备拒绝此功率或控制参数',4:'设备未能执行控制指令',5:'未获得骑行台控制权，请关闭其他控制软件后重试'})[result]||'设备返回未知错误';
+  pending.resultError=result===1?null:Error(reason);if(pending.written)settleCommand(pending.resultError);
+ }
+ function handleStatus(event){
+  const value=event.target.value;if(!value.byteLength)return;const opcode=value.getUint8(0);
+  if(opcode===4)machineRunning=true;
+  let error;
+  if(opcode===0xff){hasControl=false;error=Error('ERG 控制权已丢失，请在设备端确认停止，关闭其他控制软件后重试')}
+  else if([1,2,3].includes(opcode)){
+   machineRunning=false;
+   if(desired.mode==='running'&&pending?.opcode!==8)error=Error('骑行台已从设备端停止或暂停，测试已暂停');
+  }else if(opcode===8&&value.byteLength>=3&&desired.mode==='running'&&pending?.opcode!==5&&value.getInt16(1,true)!==desired.power){
+   error=Error('骑行台目标功率已在设备端改变，测试已暂停');
+  }
+  if(error){settleCommand(error);state.phase='error';state.power=null;state.error=error.message;emit()}
+ }
+ async function initializeController(){
+  try{
+  const features=await (await service.getCharacteristic(0x2acc)).readValue();
+  if(features.byteLength<8||!(features.getUint32(4,true)&8))throw Error('此设备不支持 FTMS ERG 目标功率控制');
+  const range=await (await service.getCharacteristic(0x2ad8)).readValue();state.range=readCapabilities(features,range);
+  point=await service.getCharacteristic(0x2ad9);status=await service.getCharacteristic(0x2ada);
+  if(disposed)throw cancelled();
+  point.addEventListener('characteristicvaluechanged',handleResponse);status.addEventListener('characteristicvaluechanged',handleStatus);
+  await point.startNotifications();await status.startNotifications();
+  await sendCommand(0);hasControl=true;
+  if(disposed)throw cancelled();state.phase='ready';emit();
+  }catch(error){disposeController();throw error}
+ }
+ async function drainCommands(){
+  busy=true;
+  try{
+   while(!disposed&&applied!==version){
+    const current=version,target={...desired};state.phase='setting';state.desiredPower=target.mode==='running'?target.power:null;emit();
+    try{
+     if(target.mode==='running'){
+      validatePower(state.range,target.power);
+      if(!hasControl){await sendCommand(0);hasControl=true;if(current!==version)continue}
+      const bytes=new DataView(new ArrayBuffer(2));bytes.setInt16(0,target.power,true);
+      await sendCommand(5,[bytes.getUint8(0),bytes.getUint8(1)]);if(current!==version)continue;
+      if(!machineRunning){await sendCommand(7);machineRunning=true;if(current!==version)continue}
+      state.phase='running';state.power=target.power;
+     }else{
+      // Permission loss must not start a fight for control with another client.
+      if(!hasControl&&target.retry){await sendCommand(0);hasControl=true;if(current!==version)continue}
+      if(hasControl){await sendCommand(8,[target.mode==='stopped'?1:2]);if(target.mode==='stopped')state.error=''}
+      machineRunning=false;if(current!==version)continue;
+      state.phase=target.mode;state.power=null;
+     }
+     applied=current;emit();
+    }catch(error){
+     if(disposed)return;applied=current;state.phase='error';state.power=null;state.error=error.message+(target.mode==='running'||error.message.includes('设备端')?'':'；请在设备端确认负载已停止');emit();
+    }
+   }
+  }finally{busy=false}
+ }
+ function setDesired(mode,power=null,retry=false){
+  if(disposed||!state.range)return;
+  if(mode==='running')validatePower(state.range,power);
+  if(desired.mode===mode&&desired.power===power&&!retry)return;
+  desired={mode,power,retry};version++;if(mode==='running'||retry)state.error='';
+  if(!busy)work=drainCommands();
+ }
+ async function waitForIdle(){while(busy)await work}
+ function disposeController(){
+  disposed=true;hasControl=false;settleCommand(cancelled());
+  point?.removeEventListener('characteristicvaluechanged',handleResponse);status?.removeEventListener('characteristicvaluechanged',handleStatus);
+  state.phase='disconnected';state.power=null;
+ }
+ return {state,initializeController,setDesired,waitForIdle,disposeController};
+}
+Lab.erg={readCapabilities,validatePower,createController};
+})();
+
+</script>
+  <script>
+(function(){
+'use strict';
+const Lab=window.Lab;
+const specs={power:{label:'功率计',service:0x1818,characteristic:0x2a63},heart:{label:'心率带',service:0x180d,characteristic:0x2a37},trainer:{label:'ERG 骑行台',service:0x1826,characteristic:0x2ad2}};
+const slots=Object.fromEntries(Object.keys(specs).map(key=>[key,{status:'disconnected',name:'',values:{},crank:null}]));
+const listeners=new Set();
+function emitChange(){listeners.forEach(fn=>fn())}
+function parseHeart(view){
+ if(view.byteLength<2)throw Error('心率数据不完整');
+ const flags=view.getUint8(0),hr=flags&1?view.getUint16(1,true):view.getUint8(1);
+ // Contact status is meaningful only when the sensor advertises contact support.
+ return {hr:(flags&4)&&!(flags&2)?null:hr>0&&hr<255?hr:null};
+}
+function parsePower(view,previous=null,now=Date.now()){
+ const flags=view.getUint16(0,true),power=view.getInt16(2,true);let offset=4,crank=null,cadence;
+ if(flags&1)offset++;
+ if(flags&4)offset+=2;
+ if(flags&16)offset+=6;
+ if(flags&32){
+  crank={revs:view.getUint16(offset,true),time:view.getUint16(offset+2,true),changedAt:now};offset+=4;
+  if(previous){
+   const revs=(crank.revs-previous.revs+65536)%65536,ticks=(crank.time-previous.time+65536)%65536;
+   if(revs===0){crank.changedAt=previous.changedAt;if(now-previous.changedAt>=3000)cadence=0}
+   else if(ticks>0&&now-previous.changedAt<10000){const rpm=revs*61440/ticks;if(rpm<=254)cadence=rpm}
+  }
+ }
+ for(const [bit,size] of [[6,4],[7,4],[8,3],[9,2],[10,2],[11,2]])if(flags&(1<<bit))offset+=size;
+ if(offset>view.byteLength)throw Error('功率数据不完整');
+ return {values:{power:power>=0?power:null,...(cadence===undefined?{}:{cadence})},crank};
+}
+function parseTrainer(view){
+ const flags=view.getUint16(0,true),values={};let offset=2;
+ if(!(flags&1)){values.speed=view.getUint16(offset,true)/360;offset+=2}
+ for(const [bit,size,key,scale,signed] of [[1,2],[2,2,'cadence',.5],[3,2],[4,3],[5,2],[6,2,'power',1,true],[7,2],[8,5],[9,1,'hr',1],[10,1],[11,2],[12,2]]){
+  if(!(flags&(1<<bit)))continue;
+  if(offset+size>view.byteLength)throw Error('骑行台数据不完整');
+  if(key){const value=size===1?view.getUint8(offset):signed?view.getInt16(offset,true):view.getUint16(offset,true);values[key]=(value<0||(key==='hr'&&(value===0||value===255))||(key==='cadence'&&value*scale>254))?null:value*scale}
+  offset+=size;
+ }
+ return values;
+}
+function describeSupport(){return !window.isSecureContext?'蓝牙连接需要 HTTPS 或 localhost，请打开在线版。':!navigator.bluetooth?'当前浏览器不支持蓝牙连接，请使用电脑端 Chrome / Edge 或 Android Chrome。':''}
+function clearConnection(slot){
+ slot.erg?.disposeController();slot.erg=null;
+ if(slot.characteristic&&slot.onValue)slot.characteristic.removeEventListener('characteristicvaluechanged',slot.onValue);
+ if(slot.device&&slot.onDisconnect)slot.device.removeEventListener('gattserverdisconnected',slot.onDisconnect);
+ slot.characteristic=null;slot.onValue=null;slot.onDisconnect=null;slot.values={};slot.crank=null;
+}
+async function connectDevice(kind){
+ const spec=specs[kind],slot=slots[kind];if(!spec||slot.status==='connecting')return;
+ const reason=describeSupport();if(reason)throw Error(reason);
+ await disconnectDevice(kind);slot.status='connecting';slot.error='';emitChange();
+ const token={};slot.connectionToken=token;
+ const checkConnection=()=>{if(slot.connectionToken!==token)throw Error('连接已取消')};
+ try{
+  const device=await navigator.bluetooth.requestDevice({filters:[{services:[spec.service]}]});
+  checkConnection();
+  slot.device=device;slot.name=device.name||spec.label;
+  slot.onDisconnect=()=>{if(slot.connectionToken!==token)return;clearConnection(slot);slot.connectionToken=null;slot.status='disconnected';slot.error=kind==='trainer'?'ERG 骑行台已断开，请在设备端确认负载已停止':'';emitChange()};
+  device.addEventListener('gattserverdisconnected',slot.onDisconnect);
+  const server=await device.gatt.connect(),service=await server.getPrimaryService(spec.service);
+  const characteristic=await service.getCharacteristic(spec.characteristic);checkConnection();slot.characteristic=characteristic;
+  slot.onValue=event=>{
+   if(slot.connectionToken!==token)return;
+   try{
+    const now=Date.now(),view=event.target.value;let values;
+    if(kind==='heart')values=parseHeart(view);
+    else if(kind==='trainer')values=parseTrainer(view);
+    else{const parsed=parsePower(view,slot.crank,now);values=parsed.values;slot.crank=parsed.crank}
+    for(const [key,value] of Object.entries(values))slot.values[key]={value,at:now};
+    emitChange();
+   }catch{/* A malformed notification must not replace the last valid measurement. */}
+  };
+  characteristic.addEventListener('characteristicvaluechanged',slot.onValue);
+  await characteristic.startNotifications();checkConnection();
+  if(kind==='trainer'){slot.erg=Lab.erg.createController(service,emitChange);await slot.erg.initializeController()}
+  checkConnection();
+  if(!device.gatt.connected)throw Error('设备已断开，请重新连接');
+  slot.status='connected';emitChange();
+ }catch(error){
+  if(slot.connectionToken!==token)return;
+  clearConnection(slot);slot.connectionToken=null;slot.device?.gatt?.disconnect();slot.status='disconnected';slot.error=error.name==='NotFoundError'?'':error.message;emitChange();
+  if(error.name!=='NotFoundError')throw Error(`连接${spec.label}失败：${error.message}`);
+ }
+}
+async function disconnectDevice(kind){
+ const slot=slots[kind];if(!slot||slot.status==='connecting')return;
+ const token=slot.connectionToken;
+ let error;
+ if(kind==='trainer'&&slot.erg){
+  if(!(['ready','stopped'].includes(slot.erg.state.phase)&&!slot.erg.state.error)){slot.erg.setDesired('stopped');await slot.erg.waitForIdle()}
+  error=slot.erg?.state.error;
+ }
+ if(slot.connectionToken!==token)return;
+ clearConnection(slot);slot.connectionToken=null;slot.device?.gatt?.disconnect();slot.status='disconnected';emitChange();
+ if(error)throw Error(`已断开 ERG 连接，请在设备端确认停止负载：${error}`);
+}
+function readSnapshot(now=Date.now()){
+ const fresh=(kind,key)=>{const slot=slots[kind],sample=slot.values[key];return slot.status==='connected'&&sample&&now>=sample.at&&now-sample.at<=5000&&Number.isFinite(sample.value)?{value:sample.value,source:kind}:null};
+ const output={};
+ for(const [key,kinds] of Object.entries({power:['power','trainer'],cadence:['power','trainer'],hr:['heart','trainer'],speed:['trainer']})){
+  const sample=kinds.map(kind=>fresh(kind,key)).find(Boolean);output[key]=sample?.value??null;output[key+'Source']=sample?.source??null;
+ }
+ return output;
+}
+Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)}};
+})();
+
+</script>
+  <script>
+(function(){
+'use strict';
+const Lab=window.Lab;
+function beginRecording(s,now=Date.now()){
+ if(!s.recording)s.recording={version:1,startedAt:now,endedAt:null,records:[],spans:[],windows:[]};
+ const r=s.recording;
+ if(!r.spans.length||r.spans.at(-1).endAt!==null)r.spans.push({startAt:now,endAt:null});
+ syncStage(s,now);
+}
+function syncStage(s,now=Date.now()){
+ const r=s.recording;if(!r)return;const index=s.execution.stageIndex,last=r.windows.at(-1);
+ if(last&&last.index!==index){last.endAt=now;if(last.effortEndAt===null)last.effortEndAt=now}
+ if(!last||last.index!==index)r.windows.push({index,startAt:now,endAt:null,effortEndAt:null});
+ const current=r.windows.at(-1);if(s.execution.phase==='sampling'&&current.effortEndAt===null)current.effortEndAt=now;
+}
+function stopRecording(s,now=Date.now(),done=false){
+ const r=s.recording;if(!r)return;const span=r.spans.at(-1);if(span&&span.endAt===null)span.endAt=Math.max(span.startAt,now);
+ if(done){r.endedAt=now;const current=r.windows.at(-1);if(current){current.endAt=now;if(current.effortEndAt===null)current.effortEndAt=now}}
+}
+function captureRecord(s,snapshot,now=Date.now()){
+ const r=s.recording;if(!r||s.execution.status!=='running'||r.endedAt!==null)return false;
+ if(r.records.length&&Math.floor(r.records.at(-1).timestamp/1000)>=Math.floor(now/1000))return false;
+ r.records.push({timestamp:now,stage:s.execution.stageIndex,phase:s.execution.phase,targetPower:s.stages[s.execution.stageIndex].power,...snapshot});
+ return true;
+}
+function measureTimer(r,start,end){return r.spans.reduce((sum,span)=>sum+Math.max(0,Math.min(end,span.endAt??end)-Math.max(start,span.startAt)),0)}
+function readSampleTime(s,index,now=Date.now()){
+ const st=s.stages[index],w=s.recording?.windows.find(w=>w.index===index);if(!w)return null;
+ const end=w.endAt??now,time=Number(st.sampleAt)||Date.parse(st.recordedAt);
+ return Number.isFinite(time)&&time>=w.startAt&&time<=end?time:Math.min(end,w.effortEndAt??end);
+}
+function recoverRecording(s,now=Date.now()){
+ if(s.execution.status!=='running')return false;
+ const r=s.recording,checkpoint=Math.max(r?.windows.at(-1)?.startAt??0,r?.records.at(-1)?.timestamp??s.execution.startedAt??now);
+ // Only the last observed instant is recoverable after a reload; never invent BLE history.
+ s.execution.elapsedMs=(s.execution.elapsedMs||0)+Math.max(0,checkpoint-(s.execution.startedAt||checkpoint));
+ s.execution.status='paused';s.execution.startedAt=null;stopRecording(s,checkpoint);return true;
+}
+function readRecording(raw,stageCount){
+ if(raw==null)return null;
+ const validTime=x=>Number.isFinite(x)&&x>=631065600000&&x<=4102444800000;
+ const invalid=()=>{throw Error('活动记录损坏，无法导入')};
+ if(raw.version!==1||!validTime(raw.startedAt)||!(raw.endedAt===null||validTime(raw.endedAt)&&raw.endedAt>=raw.startedAt)||!Array.isArray(raw.records)||raw.records.length>86400||!Array.isArray(raw.spans)||raw.spans.length>10000||!Array.isArray(raw.windows)||raw.windows.length>stageCount)invalid();
+ let previous=0;
+ const records=raw.records.map(x=>{
+  if(!validTime(x.timestamp)||x.timestamp<raw.startedAt||raw.endedAt!==null&&x.timestamp>raw.endedAt||x.timestamp<previous||!Number.isInteger(x.stage)||x.stage<0||x.stage>=stageCount)invalid();previous=x.timestamp;
+  const clean={timestamp:x.timestamp,stage:x.stage,phase:x.phase==='sampling'?'sampling':'effort',targetPower:Number.isFinite(x.targetPower)?Math.max(0,Math.min(1200,x.targetPower)):null};
+  for(const [key,max] of [['power',65534],['hr',254],['cadence',254],['speed',65]]){clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=max?x[key]:null;clean[key+'Source']=['power','heart','trainer'].includes(x[key+'Source'])?x[key+'Source']:null}
+  return clean;
+ });
+ const readRanges=(ranges,windows=false)=>{let last=raw.startedAt;return ranges.map((x,i)=>{
+  if(!validTime(x.startAt)||x.startAt<last||!(x.endAt===null||validTime(x.endAt)&&x.endAt>=x.startAt)||x.endAt===null&&i!==ranges.length-1)invalid();last=x.endAt??x.startAt;
+  if(windows&&(!Number.isInteger(x.index)||x.index<0||x.index>=stageCount||i>0&&x.index<=ranges[i-1].index||!(x.effortEndAt===null||validTime(x.effortEndAt)&&x.effortEndAt>=x.startAt&&(x.endAt===null||x.effortEndAt<=x.endAt))))invalid();
+  return windows?{index:x.index,startAt:x.startAt,endAt:x.endAt,effortEndAt:x.effortEndAt}:{startAt:x.startAt,endAt:x.endAt};
+ })};
+ const r={version:1,startedAt:raw.startedAt,endedAt:raw.endedAt,records,spans:readRanges(raw.spans),windows:readRanges(raw.windows,true)};
+ // Exporting a running test produces a paused, self-contained snapshot on import.
+ const end=r.endedAt??r.records.at(-1)?.timestamp??r.startedAt;
+ for(const span of r.spans)if(span.endAt===null)span.endAt=Math.max(span.startAt,end);
+ return r;
+}
+Lab.recording={beginRecording,syncStage,stopRecording,captureRecord,measureTimer,readSampleTime,recoverRecording,readRecording};
+})();
+
+</script>
+  <script>
+(function(){
+'use strict';
+const Lab=window.Lab,R=Lab.recording;
+const FIT_EPOCH=Date.UTC(1989,11,31),U8=2,U16=0x84,U32=0x86,F32=0x88,STR=7;
+const developerFields=[
+ [0,'lactate','mmol/L',F32,4],[1,'rpe','0-10',F32,4],[2,'stage','',U16,2],[3,'target_power','W',U16,2],
+ [4,'phase','',U8,1],[5,'sample_time','s',U32,4],[6,'entered_time','s',U32,4],[7,'sample_quality','',U8,1],
+ [8,'resting_lactate','mmol/L',F32,4],[9,'resting_sample_time','s',U32,4],
+ [10,'power_source','',U8,1],[11,'hr_source','',U8,1],[12,'cadence_source','',U8,1]
+];
+function fitTime(ms){return Math.floor((ms-FIT_EPOCH)/1000)}
+function computeCrc(bytes){let crc=0;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=crc&1?(crc>>>1)^0xa001:crc>>>1}return crc}
+function createWriter(){
+ const chunks=[],definitions=new Map();
+ function writeMessage(local,global,fields,dev=[]){
+  const signature=JSON.stringify([global,fields.map(f=>f.slice(0,3)),dev.map(f=>f.slice(0,3))]);
+  if(definitions.get(local)!==signature){
+   const bytes=[0x40|(dev.length?0x20:0)|local,0,0,global&255,global>>8,fields.length];
+   fields.forEach(([id,size,type])=>bytes.push(id,size,type));
+   if(dev.length){bytes.push(dev.length);dev.forEach(([id,size])=>bytes.push(id,size,0))}
+   chunks.push(Uint8Array.from(bytes));definitions.set(local,signature);
+  }
+  const data=new Uint8Array(1+fields.concat(dev).reduce((size,f)=>size+f[1],0));data[0]=local;const view=new DataView(data.buffer);let offset=1;
+  for(const [,size,type,value] of fields.concat(dev)){
+   if(type===STR){const bytes=new TextEncoder().encode(String(value??''));data.set(bytes.subarray(0,size-1),offset)}
+   else if(Array.isArray(value)||value instanceof Uint8Array)data.set(value.slice(0,size),offset);
+   else if(value===null||value===undefined||!Number.isFinite(value))data.fill(255,offset,offset+size);
+   else if(type===F32)view.setFloat32(offset,value,true);
+   else if(size===1)view.setUint8(offset,Math.max(0,Math.min(254,Math.round(value))));
+   else if(size===2)view.setUint16(offset,Math.max(0,Math.min(65534,Math.round(value))),true);
+   else view.setUint32(offset,Math.max(0,Math.min(0xfffffffe,Math.round(value))),true);
+   offset+=size;
+  }
+  chunks.push(data);
+ }
+ function finishFile(){
+  const size=chunks.reduce((n,x)=>n+x.length,0),bytes=new Uint8Array(14+size+2),view=new DataView(bytes.buffer);
+  bytes.set([14,0x20]);view.setUint16(2,21218,true);view.setUint32(4,size,true);bytes.set([46,70,73,84],8);view.setUint16(12,computeCrc(bytes.subarray(0,12)),true);
+  let offset=14;chunks.forEach(chunk=>{bytes.set(chunk,offset);offset+=chunk.length});view.setUint16(offset,computeCrc(bytes.subarray(0,offset)),true);return bytes;
+ }
+ return {writeMessage,finishFile};
+}
+function devField(id,value){const field=developerFields[id];return [id,field[4],field[3],value]}
+function encodeSession(s,now=Date.now()){
+ const r=s.recording;if(!r?.spans.length)throw Error('请先开始测试，再导出 FIT 活动');
+ const end=r.endedAt??(r.spans.at(-1).endAt??now),start=r.startedAt;
+ const writer=createWriter(),write=writer.writeMessage;
+ const ts=ms=>[253,4,U32,fitTime(ms)];
+ write(0,0,[[0,1,0,4],[1,2,U16,255],[4,4,U32,fitTime(start)],[8,16,STR,'PaceLab']]);
+ write(1,207,[[1,16,13,[0xb7,0xa4,0x2a,0xf1,0x3a,0x09,0x48,0x37,0x9a,0xb8,0x50,0x61,0x63,0x65,0x4c,0x62]],[3,1,U8,0],[4,4,U32,1]]);
+ developerFields.forEach(([id,name,units,type])=>write(2,206,[[0,1,U8,0],[1,1,U8,id],[2,1,U8,type],[3,28,STR,name],[6,1,U8,1],[7,1,1,0],[8,12,STR,units]]));
+ write(3,12,[[0,1,0,2],[1,1,0,6],[3,16,STR,'Indoor cycling']]);
+ const messages=[],records=r.records.filter(x=>x.timestamp<=end).map(x=>({...x}));
+ const laps=r.windows.filter(w=>w.startAt<=end);
+ laps.forEach(w=>{
+  const st=s.stages[w.index];if(st.lactate==null&&st.rpe==null)return;
+  const at=R.readSampleTime(s,w.index,end),second=Math.floor(at/1000);
+  let record=records.find(x=>x.stage===w.index&&Math.floor(x.timestamp/1000)===second);
+  if(!record){record={timestamp:at,stage:w.index,phase:w.effortEndAt!==null&&at>=w.effortEndAt?'sampling':'effort',targetPower:st.power};records.push(record)}
+  record.sample={lactate:st.lactate,rpe:st.rpe,time:fitTime(at),entered:Number.isFinite(Date.parse(st.recordedAt))?fitTime(Date.parse(st.recordedAt)):null,quality:['normal','suspect','exclude'].indexOf(st.quality)};
+ });
+ for(const span of r.spans){
+  messages.push({at:span.startAt,priority:0,run:()=>write(4,21,[ts(span.startAt),[0,1,0,0],[1,1,0,0]])});
+  const stop=Math.min(end,span.endAt??end);
+  messages.push({at:stop,priority:3,run:()=>write(4,21,[ts(stop),[0,1,0,0],[1,1,0,4]])});
+ }
+ records.forEach(x=>messages.push({at:x.timestamp,priority:1,run:()=>write(5,20,[ts(x.timestamp),[3,1,U8,x.hr],[4,1,U8,x.cadence],[6,2,U16,x.speed==null?null:x.speed*1000],[7,2,U16,x.power]],
+  [devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
+ laps.forEach((w,i)=>{
+  const stop=Math.min(end,w.endAt??end),st=s.stages[w.index],sampleTime=st.lactate!=null||st.rpe!=null?R.readSampleTime(s,w.index,end):null;
+  messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6]],
+   [devField(0,st.lactate),devField(1,st.rpe),devField(2,w.index+1),devField(3,st.power),devField(5,sampleTime===null?null:fitTime(sampleTime)),devField(6,Number.isFinite(Date.parse(st.recordedAt))?fitTime(Date.parse(st.recordedAt)):null),devField(7,['normal','suspect','exclude'].indexOf(st.quality))])});
+ });
+ messages.sort((a,b)=>a.at-b.at||a.priority-b.priority).forEach(message=>message.run());
+ const timer=R.measureTimer(r,start,end),rest=s.restingSample;
+ write(7,18,[ts(end),[254,2,U16,0],[0,1,0,8],[1,1,0,1],[2,4,U32,fitTime(start)],[5,1,0,2],[6,1,0,6],[7,4,U32,end-start],[8,4,U32,timer],[25,2,U16,0],[26,2,U16,laps.length]],
+  [devField(8,rest?.skipped?null:rest?.lactate),devField(9,Number.isFinite(Date.parse(rest?.recordedAt))?fitTime(Date.parse(rest.recordedAt)):null)]);
+ write(8,34,[ts(end),[0,4,U32,timer],[1,2,U16,1],[2,1,0,0],[3,1,0,26],[4,1,0,1]]);
+ return writer.finishFile();
+}
+Lab.fit={encodeSession,computeCrc,fitTime,developerFields};
+})();
+
+</script>
+  <script>
+(function(){
+'use strict';
 const Lab=window.Lab;
 const C=Lab.core,A=Lab.analysis,T=Lab.tests,Charts=Lab.charts;
+const D=Lab.devices,R=Lab.recording;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
+let lastRecordingSave=0;
+let controlledSessionId=null;
+let lastTrainerStatus='disconnected';
+for(const session of db.sessions)if(R.recoverRecording(session))C.write(db);
 let view='workbench',preset='lt1',goal='lt1',search='',compareIds=[];
 const $=q=>document.querySelector(q);
 const active=()=>db.sessions.find(s=>s.id===db.activeId)||null;
@@ -560,6 +950,7 @@ function renderLive(s){
  return `<div class="card card-pad"><div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(e.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}${e.status!=='idle'?renderRestingSummary(s):''}
   <div class="live-card"><div class="live-top"><span class="live-label">阶段计时</span><span class="live-mode">${s.protocol.samplingMode==='solo'?'单人 · 分段采样':'双人 · 连续采样'}</span></div>
    ${e.status==='idle'?renderRestingEntry(s):`<div class="live-center"><div><div class="live-step" id="live-step">阶段 ${String(e.stageIndex+1).padStart(2,'0')} / ${String(s.stages.length).padStart(2,'0')}</div><div class="live-power" id="live-power">${st.power}<small>W</small></div></div><div class="timer-area"><label id="live-phase-label">${e.phase==='sampling'?'采样间隔':'当前阶段剩余'}</label><div id="live-time" class="timer">${fmtTime(st.durationSec*1000)}</div><div class="timer-label" id="live-total">目标 ${st.durationSec/60} 分钟 / 级</div></div></div>
+   <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
    <div class="stage-progress"><div id="live-progress" class="stage-fill"></div></div><div id="live-hint" class="live-hint" hidden></div>
    <div id="live-sample-entry">${shouldShowSampleEntry(s)?renderSampleEntry(s):''}</div>`}
    <div class="live-buttons" id="live-controls">${liveControls(s)}</div>
@@ -589,6 +980,56 @@ function recordTable(s){
   <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th><th>记录</th></tr></thead><tbody id="record-rows">${sessionRows(s)}</tbody></table></div>
  </div>`;
 }
+function renderDevices(s){
+ const reason=D.describeSupport();
+ return `<div class="card card-pad section-space device-panel"><div class="details"><div><div class="card-title">设备与活动记录</div><p class="card-sub">连接蓝牙设备后，开始测试即按秒记录实际读数</p></div>${btn('export-fit',icon('download')+' 导出 FIT','btn btn-sm',s.recording?'':'disabled')}</div><div class="device-grid">${Object.entries(D.specs).map(([kind,spec])=>`<div class="device-slot"><span>${esc(spec.label)}</span><strong id="device-${kind}-name"></strong><small id="device-${kind}-status"></small><button class="btn btn-sm" data-action="connect-device" data-kind="${kind}" id="device-${kind}-button" ${reason?'disabled':''}>连接</button></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div><div class="sensor-values">${[['power','实际功率','W'],['hr','实时心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong id="sensor-${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="recording-note" id="recording-note"></div><p class="device-help">${esc(reason||'功率计使用 Cycling Power，心率带使用 Heart Rate；ERG 骑行台需支持 FTMS 目标功率控制。运动阶段自动设定瓦数，采血间隔与暂停时暂停骑行台，结束时停止。优先记录独立功率计与心率带。')} 请保持页面在前台；设备超过 5 秒未更新时留空记录。关闭页面后请在设备端确认负载已停止。</p></div>`;
+}
+function paintDevices(){
+ if(!$('#recording-note'))return;
+ for(const [kind,slot] of Object.entries(D.slots)){
+  $(`#device-${kind}-name`).textContent=slot.name||'尚未选择设备';
+  $(`#device-${kind}-status`).textContent=slot.status==='connected'?'已连接':slot.status==='connecting'?'正在连接…':'未连接';
+  const button=$(`#device-${kind}-button`);button.textContent=slot.status==='connected'?'断开':slot.status==='connecting'?'连接中…':slot.name?'重新连接':'连接';button.disabled=slot.status==='connecting'||!!D.describeSupport();button.dataset.action=slot.status==='connected'?'disconnect-device':'connect-device';
+ }
+ const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
+ const s=active(),r=s?.recording;
+ $('#recording-note').textContent=r?`${s.execution.status==='running'?'● 正在记录':s.execution.status==='done'?'记录已结束':'记录已暂停'} · ${r.records.length.toLocaleString()} 条 · 乳酸与 RPE 随对应阶段写入 FIT`:'开始测试后自动记录，暂停时停止记录。乳酸与 RPE 可补录后重新导出。';
+ const trainer=D.slots.trainer,erg=trainer.erg?.state;
+ const message=erg?.error||trainer.error||(trainer.status==='connecting'?'正在连接 ERG 骑行台并获取控制权…':erg?.phase==='running'?`ERG 已确认目标 ${erg.power} W`:erg?.phase==='setting'?erg.desiredPower===null?'ERG 正在暂停 / 停止…':`ERG 正在设置 ${erg.desiredPower} W…`:erg?.phase==='paused'?'ERG 已暂停 · 下一运动阶段自动恢复':erg?.phase==='stopped'?'ERG 已停止':erg?.phase==='ready'?`ERG 已就绪 · ${erg.range.min}–${erg.range.max} W，步长 ${erg.range.step} W`:'ERG 未连接 · 可手动控制功率进行测试');
+ document.querySelectorAll('[data-erg-status]').forEach(node=>{if(node.textContent!==message)node.textContent=message;node.classList.toggle('has-error',!!(erg?.error||trainer.error))});
+}
+function validateErgProtocol(s){
+ const trainer=D.slots.trainer;if(trainer.status!=='connected'||!trainer.erg)return;
+ if(trainer.erg.state.requiresReconnect)throw Error('ERG 控制响应超时，请在设备端停止负载后断开并重新连接');
+ s.stages.slice(s.execution.stageIndex).forEach(stage=>Lab.erg.validatePower(trainer.erg.state.range,stage.power));
+}
+function syncErgControl(retry=false){
+ const trainer=D.slots.trainer,s=active();if(trainer.status!=='connected'||!trainer.erg){if(s?.execution.status==='running')controlledSessionId=null;return}
+ try{
+  if(s?.execution.status==='running'){
+   validateErgProtocol(s);controlledSessionId=s.id;
+   trainer.erg.setDesired(s.execution.phase==='sampling'?'paused':'running',s.execution.phase==='sampling'?null:s.stages[s.execution.stageIndex].power,retry&&!!trainer.erg.state.error);
+  }else if(controlledSessionId)trainer.erg.setDesired(!s||s.id!==controlledSessionId||s.execution.status==='done'?'stopped':'paused');
+ }catch(error){if(s?.execution.status==='running')pause();toast(error.message)}
+}
+function handleDeviceChange(){
+ const trainer=D.slots.trainer,s=active();
+ const newlyConnected=trainer.status==='connected'&&lastTrainerStatus!=='connected';lastTrainerStatus=trainer.status;
+ if(s?.execution.status==='running'&&controlledSessionId===s.id&&(trainer.status==='disconnected'||trainer.erg?.state.error)){
+  const reason=trainer.erg?.state.error||trainer.error||'ERG 骑行台连接已断开，请在设备端确认负载已停止';
+  pause();toast(reason+'；测试已暂停');
+ }else if(newlyConnected)syncErgControl();
+ if(trainer.status==='disconnected')controlledSessionId=null;
+ paintDevices();
+}
+function captureActivity(now=Date.now()){
+ const s=active();if(!s||s.execution.status!=='running')return;
+ if(!s.recording)R.beginRecording(s,now);
+ R.captureRecord(s,D.readSnapshot(now),now);
+ if(now-lastRecordingSave>=5000){persist(s);lastRecordingSave=now}
+ paintDevices();
+}
+function pauseActive(){if(active()?.execution.status==='running')pause()}
 function quickChart(s){const a=A.analyze(s.stages);
  return `<div class="card card-pad"><div class="card-heading"><div class="card-title">乳酸-功率曲线</div>${btn('view-analysis','完整分析 '+icon('arrow'),'btn btn-sm btn-ghost')}</div><div class="chart-surface" id="overview-lactate-chart">${Charts.curve(s.stages,'lactate',turnpointMarkers(a),a.fit,a.lt2Fit)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>乳酸读数</span><span><i class="legend-dot" style="background:#c98d56"></i>拟合曲线</span><span>LT1 / LT2 拐点估计</span></div></div>`;
 }
@@ -596,11 +1037,11 @@ function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+introStats(s,A.analyze(s.stages))+`<div class="grid-main"><div>${renderLive(s)}</div><div>${quickChart(s)}</div></div>`+recordTable(s);
+ return head+introStats(s,A.analyze(s.stages))+`<div class="grid-main"><div>${renderLive(s)}</div><div>${quickChart(s)}</div></div>`+renderDevices(s)+recordTable(s);
 }
 
 function renderAnalysis(){
- const s=active();const act=heading('结果分析',s?`${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:'');
+ const s=active();const act=heading('结果分析',s?`${btn('export-fit',icon('download')+' FIT','btn',s.recording?'':'disabled')}${btn('export-csv',icon('download')+' CSV','btn')}${btn('print',icon('printer')+' 报告 / PDF','btn btn-dark')}`:'');
  if(!s)return act+C.emptyState('暂无测试','','chart');
  const a=A.analyze(s.stages);
  const markers=turnpointMarkers(a);
@@ -636,7 +1077,7 @@ function render(){
  renderSidebar();renderTopbar();
  const root=$('#content');
  root.innerHTML=view==='analysis'?renderAnalysis():view==='history'?renderHistory():renderWorkbench();
- paintLive();
+ syncErgControl();paintLive();paintDevices();
 }
 function newModal(){
  const a=T.readAthlete(db.athlete)||T.readAthlete(active()?.athlete)||{name:'',sex:'',age:'',ftp:''};
@@ -723,12 +1164,13 @@ function start(skipResting=false){const s=active();if(!s)return;let e=s.executio
  if(e.status==='done')return toast('测试已结束，无法继续计时');
  if(e.status==='ready'){nextStage();return}
  if(e.status==='running')return;
+ try{validateErgProtocol(s)}catch(error){toast(error.message);return}
  if(e.status==='idle'){
   if(skipResting)s.restingSample={lactate:null,recordedAt:null,skipped:true};
   else{const input=$('#resting-lactate');if(!input||!saveRestingSample(input,true))return}
   e.stageIndex=0;e.phase='effort';e.elapsedMs=0;
  }
- e.status='running';e.startedAt=Date.now();persist(s);render();if(s.protocol.beep)beep();}
+ e.status='running';e.startedAt=Date.now();R.beginRecording(s,e.startedAt);syncErgControl(true);captureActivity(e.startedAt);persist(s);render();if(s.protocol.beep)beep();}
 function saveRestingSample(input,required=false){const s=active();if(!s||s.execution.status!=='idle')return false;
  input.setCustomValidity('');
  if(required&&input.value===''&&!input.validity.badInput)input.setCustomValidity('请填写静息乳酸值，或选择跳过并开始');
@@ -737,13 +1179,13 @@ function saveRestingSample(input,required=false){const s=active();if(!s||s.execu
  if(!input.validity.valid){if(required){input.reportValidity();input.focus()}return false}
  s.restingSample=input.value===''?null:{lactate:Number(input.value),recordedAt:new Date().toISOString(),skipped:false};persist(s);return true;
 }
-function pause(){const s=active();if(!s)return;const e=s.execution;if(e.status!=='running')return;e.elapsedMs=elapsedNow(e);e.startedAt=null;e.status='paused';persist(s);render()}
+function pause(){const s=active();if(!s)return;const e=s.execution;if(e.status!=='running')return;captureActivity();e.elapsedMs=elapsedNow(e);e.startedAt=null;e.status='paused';R.stopRecording(s);syncErgControl();persist(s);render()}
 function finish(){const s=active();if(!s)return;if(s.execution.status==='done')return;
  if(s.execution.status!=='idle'&&!window.confirm('结束测试？结束后无法继续计时。'))return;
- const e=s.execution;e.status='done';e.finishedAt=new Date().toISOString();e.elapsedMs=0;e.startedAt=null;persist(s);render()}
+ captureActivity();const e=s.execution;e.status='done';e.finishedAt=new Date().toISOString();e.elapsedMs=0;e.startedAt=null;R.stopRecording(s,Date.now(),true);syncErgControl();persist(s);render()}
 function nextStage(){const s=active();if(!s)return;const e=s.execution;
- if(e.stageIndex>=s.stages.length-1){e.status='done';e.finishedAt=new Date().toISOString();e.startedAt=null;e.elapsedMs=0;persist(s);render();return}
- e.stageIndex++;e.phase='effort';e.elapsedMs=0;e.startedAt=Date.now();e.status='running';persist(s);render();if(s.protocol.beep)beep();}
+ if(e.stageIndex>=s.stages.length-1){captureActivity();e.status='done';e.finishedAt=new Date().toISOString();e.startedAt=null;e.elapsedMs=0;R.stopRecording(s,Date.now(),true);syncErgControl();persist(s);render();return}
+ e.stageIndex++;e.phase='effort';e.elapsedMs=0;e.startedAt=Date.now();e.status='running';R.beginRecording(s,e.startedAt);R.syncStage(s,e.startedAt);syncErgControl();captureActivity();persist(s);render();if(s.protocol.beep)beep();}
 function beep(){try{const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx();const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=784;g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.12,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.23);o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.25);setTimeout(()=>ctx.close(),600)}catch{}}
 function updateExecution(){const s=active();if(!s||s.execution.status!=='running')return;
  const e=s.execution;let transitions=0;
@@ -758,8 +1200,11 @@ function updateExecution(){const s=active();if(!s||s.execution.status!=='running
   }else{
     e.status='done';e.startedAt=null;e.finishedAt=new Date().toISOString();e.elapsedMs=duration;
   }
+  const boundary=Date.now()-phaseOverrun;
+  if(e.status==='done'){e.finishedAt=new Date(boundary).toISOString();R.stopRecording(s,boundary,true)}else R.syncStage(s,boundary);
   persist(s);if(e.stageIndex!==stageIndex||e.status==='done')render();else paintLive();
  }
+ syncErgControl();
 }
 function paintLive(){const s=active(),timer=$('#live-time');if(!s||!timer||view!=='workbench')return;
  const e=s.execution,st=s.stages[e.stageIndex];if(!st)return;
@@ -789,7 +1234,7 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
    target.setCustomValidity('');
    if(target.validity.badInput||target.validity.stepMismatch||(nv!==null&&(!Number.isFinite(nv)||nv<bounds[0]||nv>bounds[1]))){target.setCustomValidity(`请输入 ${bounds[0]}–${bounds[1]} 之间的数值${field==='rpe'?'，以 0.5 递增':field==='lactate'?'，保留一位小数':''}`);showSampleError(target);return}
    showSampleError(target);stage[field]=nv;
-   if(field==='lactate'&&nv!==null&&!stage.recordedAt)stage.recordedAt=new Date().toISOString();
+   if(['lactate','rpe'].includes(field)&&nv!==null){if(!stage.recordedAt)stage.recordedAt=new Date().toISOString();if(!stage.sampleAt&&s.execution.stageIndex===index&&['running','paused'].includes(s.execution.status))stage.sampleAt=Date.now()}
  }else if(field==='notes')stage.notes=raw.slice(0,200);
  else stage.quality=['normal','suspect','exclude'].includes(raw)?raw:'normal';
  persist(s);
@@ -797,22 +1242,28 @@ function checkSampleField(target){const s=active();if(!s)return;const index=Numb
  refreshDataDisplay(target);
 }
 function showSampleError(target){target.setAttribute('aria-invalid',String(!!target.validationMessage));const error=document.getElementById(target.id+'-error');if(error)error.textContent=target.validationMessage}
-function duplicate(source){const s=source||active();if(!s)return;
+function duplicate(source){const s=source||active();if(!s)return;pauseActive();
  const input=T.validInput({...s.protocol,athlete:s.athlete,name:s.name+'（副本）'});
  const copy=T.newSession(input);copy.metadata={...s.metadata,notes:''};db.sessions.push(copy);db.activeId=copy.id;view='workbench';persist();render()}
-function exportedSession(s){const a=A.analyze(s.stages);return {...s,analysis:{method:a.method,model:a.model,lt1Model:a.lt1Model,lt2Model:a.lt2Model,lt2Region:a.lt2Region,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
+function exportedSession(s){const a=A.analyze(s.stages),copy={...s,execution:{...s.execution}};
+ if(s.execution.status==='running'){
+  copy.execution={...s.execution,status:'paused',elapsedMs:elapsedNow(s.execution),startedAt:null};
+  if(s.recording){copy.recording={...s.recording,spans:s.recording.spans.map(span=>({...span}))};R.stopRecording(copy)}
+ }
+ return {...copy,analysis:{method:a.method,model:a.model,lt1Model:a.lt1Model,lt2Model:a.lt2Model,lt2Region:a.lt2Region,lt1:a.lt1,lt2:a.lt2,reason:a.reason,lt1Reason:a.lt1Reason,lt2Reason:a.lt2Reason}}}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
+function downloadFit(s){if(!s)return;try{C.download(Lab.fit.encodeSession(s),`PaceLab_${safeFile(s.name)}.fit`,'application/octet-stream')}catch(error){toast(error.message)}}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
  if(data?.schemaVersion!==1||!Array.isArray(raw))throw Error('无法识别的文件格式或数据版本');
  if(raw.length>300)throw Error('一次导入的测试数量过多（上限 300）');
- let imported=0;
+ const additions=[];
  for(const old of raw){
   if(old?.type!=='lactate-step'||!Array.isArray(old.stages)||old.stages.length<3||old.stages.length>25)continue;
   let v;try{v=T.validInput({...old.protocol,athlete:T.readAthlete(old.athlete),stageCount:old.stages.length,name:String(old.name||'导入测试'),samplingMode:old.protocol?.samplingMode||'assisted'})}catch{continue}
   const s=T.newSession(v);s.id=uid();s.createdAt=Number.isFinite(Date.parse(old.createdAt))?old.createdAt:new Date().toISOString();
-  s.name=v.name+(db.sessions.some(x=>x.name===v.name)?'（导入）':'');
+  s.name=v.name+([...db.sessions,...additions].some(x=>x.name===v.name)?'（导入）':'');
   s.metadata={notes:String(old.metadata?.notes||'').slice(0,1500),device:String(old.metadata?.device||'').slice(0,120),environment:String(old.metadata?.environment||'').slice(0,120),operator:String(old.metadata?.operator||'').slice(0,120)};
   const resting=old.restingSample,lactate=A.value(resting?.lactate);
   if(resting?.skipped===true)s.restingSample={lactate:null,recordedAt:null,skipped:true};
@@ -822,13 +1273,15 @@ function importSessions(data){
     for(const [key,min,max] of [['lactate',.2,30],['hr',30,240],['rpe',0,10]]){const z=original[key];const x=Number(z);stage[key]=z===null||z===''||z===undefined||!Number.isFinite(x)||x<min||x>max?null:x}
     stage.quality=['normal','suspect','exclude'].includes(original.quality)?original.quality:'normal';
     stage.notes=String(original.notes||'').slice(0,200);stage.recordedAt=Number.isFinite(Date.parse(original.recordedAt||original.sampleAt))?(original.recordedAt||original.sampleAt):null;
+    stage.sampleAt=Number.isFinite(original.sampleAt)?original.sampleAt:null;
   });
   const e=old.execution||{};
-  s.execution={stageIndex:C.clamp(Number(e.stageIndex)||0,0,s.stages.length-1),phase:e.phase==='sampling'?'sampling':'effort',status:e.status==='done'?'done':e.status==='idle'?'idle':'paused',elapsedMs:C.clamp(Number(e.elapsedMs)||0,0,10000000),startedAt:null,finishedAt:e.finishedAt||null};
-  db.sessions.push(s);db.activeId=s.id;imported++;
+  s.execution={stageIndex:C.clamp(Math.trunc(Number(e.stageIndex)||0),0,s.stages.length-1),phase:e.phase==='sampling'?'sampling':'effort',status:e.status==='done'?'done':e.status==='idle'?'idle':'paused',elapsedMs:C.clamp(Number(e.elapsedMs)||0,0,10000000),startedAt:null,finishedAt:e.finishedAt||null};
+  s.recording=R.readRecording(old.recording,s.stages.length);
+  additions.push(s);
  }
- if(!imported)throw Error('文件中没有可以导入的乳酸阶梯测试');
- persist();view='history';render();
+ if(!additions.length)throw Error('文件中没有可以导入的乳酸阶梯测试');
+ pauseActive();db.sessions.push(...additions);db.activeId=additions.at(-1).id;persist();view='history';render();
 }
 function printReport(s){if(!s)return;const a=A.analyze(s.stages);const printCell=(v)=>`<td>${esc(v??'—')}</td>`;
  $('#print-report').innerHTML=`<h1>PaceLab 测试报告</h1><p>乳酸阶梯测试 · ${dateText(new Date().toISOString())}</p><hr style="border:0;border-top:1px solid #ddd;margin:15px 0">
@@ -846,7 +1299,7 @@ function createFromForm(){
  const get=name=>form.querySelector(`[name="${name}"]`)?.value;
  try{
   const v=T.validInput({name:get('name'),startPower:get('startPower'),increment:get('increment'),stageMinutes:get('stageMinutes'),stageCount:get('stageCount'),samplingMode:get('samplingMode'),sampleSite:get('sampleSite'),samplePauseSec:get('samplePauseSec'),beep:form.querySelector('[name="beep"]').checked,preset,goal,athlete:formAthlete()});
-  const s=T.newSession(v);db.sessions.push(s);db.activeId=s.id;db.athlete={...v.athlete};view='workbench';persist();closeModal();render();
+  pauseActive();const s=T.newSession(v);db.sessions.push(s);db.activeId=s.id;db.athlete={...v.athlete};view='workbench';persist();closeModal();render();
  }catch(err){const target=$('#new-error');if(target)target.textContent=err.message;else toast(err.message)}
 }
 function saveEdit(){const s=active();if(!s)return;
@@ -873,21 +1326,25 @@ function handleClick(event){
   case 'edit':editModal();break;
   case 'save-edit':saveEdit();break;
   case 'edit-sample':openSampleModal(Number(el.dataset.index));break;
+  case 'connect-device':D.connectDevice(el.dataset.kind).then(paintDevices).catch(error=>toast(error.message));break;
+  case 'disconnect-device':if(el.dataset.kind==='trainer')pauseActive();D.disconnectDevice(el.dataset.kind).catch(error=>toast(error.message));break;
   case 'start':start();break;
   case 'skip-resting':start(true);break;
   case 'pause':pause();break;
   case 'next':nextStage();break;
   case 'finish':finish();break;
   case 'duplicate':duplicate(getSession());break;
-  case 'open-session':{const s=getSession();if(!s)return;db.activeId=s.id;view='workbench';persist();render();break;}
+  case 'open-session':{const s=getSession();if(!s)return;if(s.id!==db.activeId)pauseActive();db.activeId=s.id;view='workbench';persist();render();break;}
   case 'view-analysis':setView('analysis');break;
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
   case 'export-json':downloadJson(getSession());break;
+  case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
   case 'print':printReport(getSession());break;
   case 'delete':{
    const s=getSession();if(!s)return;
    if(!window.confirm(`删除「${s.name}」？此操作无法撤销。`))return;
+   if(db.activeId===s.id)pauseActive();
    db.sessions=db.sessions.filter(x=>x.id!==s.id);
    if(db.activeId===s.id)db.activeId=db.sessions[db.sessions.length-1]?.id||null;
    compareIds=compareIds.filter(id=>id!==s.id);persist();render();break;
@@ -921,7 +1378,7 @@ function handleChange(event){
  }
 }
 async function handleImport(event){const file=event.target.files?.[0];event.target.value='';if(!file)return;
- if(file.size>4*1024*1024)return toast('JSON 文件过大，单次最大 4 MB');
+ if(file.size>32*1024*1024)return toast('JSON 文件过大，单次最大 32 MB');
  try{importSessions(JSON.parse(await file.text()))}catch(error){toast('导入失败：'+error.message)}
 }
 document.addEventListener('click',handleClick);
@@ -930,8 +1387,10 @@ document.addEventListener('change',handleChange);
 document.addEventListener('submit',event=>{if(event.target.id==='new-form'){event.preventDefault();createFromForm()}});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#modal-root').innerHTML.trim())return;if(event.key==='Escape')closeModal()});
 $('#import-file').addEventListener('change',handleImport);
-window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();render();toast('其他标签页已更新数据')}});
-setInterval(()=>{updateExecution();paintLive()},250);
+window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续')}});
+window.addEventListener('pagehide',()=>{D.slots.trainer.erg?.setDesired('stopped');const s=active();if(s?.execution.status==='running'){s.execution.elapsedMs=elapsedNow(s.execution);s.execution.startedAt=null;s.execution.status='paused';R.stopRecording(s);persist(s)}});
+D.subscribe(handleDeviceChange);
+setInterval(()=>{updateExecution();paintLive();captureActivity();paintDevices()},250);
 render();
 })();
 
