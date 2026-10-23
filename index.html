@@ -7,27 +7,37 @@
   <meta name="description" content="PaceLab 乳酸阶梯测试：ERG 控制、计时、原始数据记录、散点图与 FIT/CSV/JSON 导出。">
   <title>PaceLab | 乳酸阶梯测试</title>
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
-  <link rel="stylesheet" href="assets/styles.css?v=20261023-hrv">
+  <link rel="stylesheet" href="assets/styles.css?v=20261024-backup">
 </head>
 <body>
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar" aria-label="主导航"></aside>
     <main class="main">
       <header class="topbar" id="topbar"></header>
+      <section id="storage-status" class="storage-status" aria-label="数据保存与备份" hidden>
+        <div class="storage-copy"><strong id="storage-message" role="status"></strong><span id="storage-detail"></span></div>
+        <div class="storage-actions">
+          <button class="btn btn-sm" data-action="retry-save" hidden>重试保存</button>
+          <button class="btn btn-sm" data-action="reload-data" hidden>重新载入</button>
+          <button class="btn btn-sm" data-action="export-original" hidden>导出原始数据</button>
+          <button class="btn btn-sm" data-action="export-backup">备份全部 JSON</button>
+        </div>
+      </section>
       <div class="content" id="content"></div>
     </main>
   </div>
   <div id="modal-root"></div>
   <div id="toast-stack" class="toast-stack" role="status" aria-live="polite"></div>
   <input type="file" id="import-file" accept=".json,application/json" hidden>
-  <script src="src/core.js?v=20261023-hrv"></script>
-  <script src="src/tests.js?v=20261023-hrv"></script>
-  <script src="src/charts.js?v=20261023-hrv"></script>
-  <script src="src/erg.js?v=20261023-hrv"></script>
-  <script src="src/devices.js?v=20261023-hrv"></script>
-  <script src="src/hrv.js?v=20261023-hrv"></script>
-  <script src="src/recording.js?v=20261023-hrv"></script>
-  <script src="src/fit.js?v=20261023-hrv"></script>
-  <script src="src/app.js?v=20261023-hrv"></script>
+  <script src="src/storage.js?v=20261024-backup"></script>
+  <script src="src/core.js?v=20261024-backup"></script>
+  <script src="src/tests.js?v=20261024-backup"></script>
+  <script src="src/charts.js?v=20261024-backup"></script>
+  <script src="src/erg.js?v=20261024-backup"></script>
+  <script src="src/devices.js?v=20261024-backup"></script>
+  <script src="src/hrv.js?v=20261024-backup"></script>
+  <script src="src/recording.js?v=20261024-backup"></script>
+  <script src="src/fit.js?v=20261024-backup"></script>
+  <script src="src/app.js?v=20261024-backup"></script>
 </body>
 </html>

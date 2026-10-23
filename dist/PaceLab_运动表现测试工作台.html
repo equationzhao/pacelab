@@ -23,6 +23,8 @@
 
 .history-toolbar{display:flex;justify-content:flex-end;margin-bottom:16px}.history-toolbar .form-control{max-width:300px}
 
+.storage-status{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1402px;margin:24px 44px -14px;padding:12px 16px;border:1px solid #dfe8e1;border-radius:12px;background:#f0f6ef;color:#315f49;font-size:12px}.storage-copy{display:grid;gap:3px;min-width:0;overflow-wrap:anywhere}.storage-copy strong{font-weight:650}.storage-copy>span{color:#657780;font-size:11px}.storage-actions{display:flex;flex-wrap:wrap;gap:8px;flex-shrink:0}.storage-status.has-error{background:#fff4e9;border-color:#e7b98a;color:#8f431e}.storage-status.has-error .storage-copy>span{color:#8f593d}@media(min-width:1738px){.storage-status{margin-left:auto;margin-right:auto}}@media(max-width:1350px){.storage-status{margin-left:28px;margin-right:28px}}@media(max-width:800px){.storage-status{margin:18px 18px -9px;align-items:flex-start;flex-direction:column;gap:10px}.storage-actions{flex-shrink:1;max-width:100%}.storage-actions .btn{min-height:40px}}
+
 .sample-entry{margin-top:20px;padding:22px;border:1px solid #54785e;border-radius:14px;background:linear-gradient(135deg,rgba(197,242,123,.12),rgba(197,242,123,.03));position:relative;z-index:1}.sample-heading{display:flex;align-items:center;gap:12px;margin-bottom:20px}.sample-symbol{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#c5f27b;color:#18372e;flex-shrink:0}.sample-heading h2{font-size:18px;letter-spacing:-.4px}.sample-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}.sample-field{min-width:0}.sample-field label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;font-weight:750;margin-bottom:9px}.sample-field label span{font-size:11px;font-weight:500;opacity:.7}.sample-field input{width:100%;min-width:0;min-height:84px;padding:12px 16px;border:2px solid #d5e7cf;border-radius:12px;background:#f9fcf5;color:#173d30;font-size:42px;line-height:1.2;font-weight:750;font-variant-numeric:tabular-nums}.sample-field input::placeholder{color:#a5b6a3}.sample-field input:focus{outline:3px solid #c5f27b55;border-color:#9bd269}.sample-field input[aria-invalid="true"]{border-color:#e69b77}.sample-error{display:block;color:#f6b99b;font-size:11px;margin-top:6px;line-height:1.6}.sample-error:empty{display:none}.sample-modal .sample-error{color:#a64a3f}.sample-extras{margin-top:24px;font-size:12px;color:#6a7b82}.sample-extras summary{cursor:pointer;padding:10px 0}.sample-extras .form-grid{margin-top:12px}
 @media(max-width:510px){.sample-entry{padding:16px;margin-top:16px}.sample-fields{gap:12px}.sample-field label{font-size:13px;align-items:start;flex-direction:column;gap:2px}.sample-field input{min-height:76px;font-size:34px;padding:10px}.sample-heading h2{font-size:16px}}
 .resting-entry{margin-top:24px}.resting-summary{display:flex;align-items:center;gap:8px;color:#657780;font-size:12px;margin-bottom:18px}.resting-summary .icon{color:var(--green);width:16px;height:16px}.resting-summary strong{color:#31594c;font-weight:750;margin-left:8px}
@@ -42,6 +44,15 @@
     <aside class="sidebar" id="sidebar" aria-label="主导航"></aside>
     <main class="main">
       <header class="topbar" id="topbar"></header>
+      <section id="storage-status" class="storage-status" aria-label="数据保存与备份" hidden>
+        <div class="storage-copy"><strong id="storage-message" role="status"></strong><span id="storage-detail"></span></div>
+        <div class="storage-actions">
+          <button class="btn btn-sm" data-action="retry-save" hidden>重试保存</button>
+          <button class="btn btn-sm" data-action="reload-data" hidden>重新载入</button>
+          <button class="btn btn-sm" data-action="export-original" hidden>导出原始数据</button>
+          <button class="btn btn-sm" data-action="export-backup">备份全部 JSON</button>
+        </div>
+      </section>
       <div class="content" id="content"></div>
     </main>
   </div>
@@ -50,9 +61,50 @@
   <input type="file" id="import-file" accept=".json,application/json" hidden>
   <script>
 (function(){
+'use strict';
+const Lab=window.Lab=window.Lab||{};
+const STORAGE_KEY='pacelab.sessions.v1';
+let observedValue=null,readSucceeded=false;
+let state={status:'ready',reason:null,savedAt:null};
+function failSave(reason){state={...state,status:'failed',reason};return false}
+function readDatabase(){
+ try{
+  observedValue=localStorage.getItem(STORAGE_KEY);
+  const value=observedValue===null?{schemaVersion:1,sessions:[],activeId:null}:JSON.parse(observedValue);
+  if(value?.schemaVersion!==1||!Array.isArray(value.sessions)||value.sessions.some(s=>!s||!s.protocol||!s.execution||!Array.isArray(s.stages)||!s.stages.length))throw Error('Invalid database');
+  readSucceeded=true;state={status:observedValue===null?'ready':'saved',reason:null,savedAt:null};
+  return value;
+ }catch{
+  readSucceeded=false;failSave('read');
+  return {schemaVersion:1,sessions:[],activeId:null};
+ }
+}
+function writeDatabase(value){
+ if(!readSucceeded)return failSave('read');
+ try{
+  const next=JSON.stringify(value);
+  // Refuse a stale tab's write before it can replace another tab's records.
+  if(localStorage.getItem(STORAGE_KEY)!==observedValue)return failSave('conflict');
+  localStorage.setItem(STORAGE_KEY,next);
+  observedValue=next;state={status:'saved',reason:null,savedAt:Date.now()};return true;
+ }catch(error){return failSave(error?.name==='QuotaExceededError'?'quota':'unavailable')}
+}
+function checkForConflict(){
+ try{if(localStorage.getItem(STORAGE_KEY)!==observedValue){failSave('conflict');return true}}
+ catch{failSave('unavailable');return true}
+ return false;
+}
+function readStatus(){return {...state}}
+function readOriginal(){return observedValue}
+Lab.storage={STORAGE_KEY,readDatabase,writeDatabase,checkForConflict,readStatus,readOriginal};
+})();
+
+</script>
+  <script>
+(function(){
   'use strict';
   const Lab=window.Lab=window.Lab||{};
-  const STORAGE_KEY='pacelab.sessions.v1';
+  const STORAGE_KEY=Lab.storage.STORAGE_KEY;
   const esc=(v)=>String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const attr=esc;
   const n=(v)=>{if(v===''||v==null)return null;const x=Number(v);return Number.isFinite(x)?x:null};
@@ -99,8 +151,8 @@
   };
   const icon=(name,cls='icon')=>`<svg class="${cls}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${ico[name]||ico.info}</svg>`;
   const emptyState=(title,desc,iconName='activity',button='')=>`<div class="card empty"><div class="empty-illustration">${icon(iconName)}</div><h3>${esc(title)}</h3>${desc?`<p>${esc(desc)}</p>`:''}${button}</div>`;
-  const read=()=>{try{const value=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');return value?.schemaVersion===1&&Array.isArray(value.sessions)?value:{schemaVersion:1,sessions:[],activeId:null}}catch{return {schemaVersion:1,sessions:[],activeId:null}}};
-  const write=(v)=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(v));return true}catch{window.Lab?.ui?.toast?.('浏览器存储失败，请导出 JSON 备份数据');return false}};
+  const read=()=>Lab.storage.readDatabase();
+  const write=(v)=>Lab.storage.writeDatabase(v);
   const download=(content,name,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)};
   const csvCell=(x)=>{const v=String(x??'');const safe=/^[=+@\-\t\r]/.test(v)?"'"+v:v;return `"${safe.replace(/"/g,'""')}"`};
   const sessionCsv=(s)=>{const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','sample_time_ms','note','athlete_name','athlete_sex','athlete_age','ftp_w','protocol_preset','resting_lactate_mmol_l','resting_sample_recorded_at','resting_sample_skipped'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.sampleAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',Lab.tests?.readGoalId(s.protocol.preset)||s.protocol.preset||'',s.restingSample?.lactate??'',s.restingSample?.recordedAt??'',s.restingSample?.skipped??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
@@ -746,7 +798,7 @@ Lab.fit={encodeSession,computeCrc,fitTime,developerFields};
 'use strict';
 const Lab=window.Lab;
 const C=Lab.core,T=Lab.tests,Charts=Lab.charts;
-const D=Lab.devices,R=Lab.recording,H=Lab.hrv;
+const D=Lab.devices,R=Lab.recording,H=Lab.hrv,S=Lab.storage;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
 let lastRecordingSave=0;
@@ -763,7 +815,21 @@ const btn=(action,label,style='btn',extra='')=>`<button class="${style}" data-ac
 const sexLabel=sex=>({male:'男',female:'女',undisclosed:'不透露'}[sex]||'');
 function athleteText(a){return a?[a.name,sexLabel(a.sex),`${a.age} 岁`,`FTP ${a.ftp} W`].join(' · '):''}
 function athleteLine(s){const parts=[athleteText(s.athlete),T.goals.find(g=>g.id===T.readGoalId(s.protocol.goal))?.name].filter(Boolean);return parts.length?`<div class="athlete-line">${parts.map(esc).join(' · ')}</div>`:''}
-function persist(s=null){if(s)s.updatedAt=new Date().toISOString();C.write(db)}
+function persist(s=null){if(s)s.updatedAt=new Date().toISOString();const saved=C.write(db);paintStorage();return saved}
+function paintStorage(){
+ const root=$('#storage-status');if(!root)return;
+ const state=S.readStatus(),failed=state.status==='failed',reload=['read','conflict'].includes(state.reason);
+ root.hidden=!db.sessions.length&&!failed;root.classList.toggle('has-error',failed);
+ const message=state.reason==='read'?'无法读取本地记录':state.reason==='conflict'?'其他标签页已更新记录':failed?'更改尚未保存':'已保存到此浏览器';
+ const detail=state.reason==='read'?(db.sessions.length?'原有数据未被覆盖。本页新记录尚未保存，请下载备份。':'原有数据未被覆盖，可先导出原始数据。'):state.reason==='conflict'?'本页数据已保留。请先备份，再重新载入。':failed?'存储不可用或空间不足。请先备份，避免刷新后丢失更改。':`${db.sessions.length} 次测试${state.savedAt?' · 最近保存 '+new Date(state.savedAt).toLocaleTimeString('zh-CN',{hour12:false}):''}`;
+ if($('#storage-message').textContent!==message)$('#storage-message').textContent=message;
+ $('#storage-detail').textContent=detail;
+ root.querySelector('[data-action="retry-save"]').hidden=!failed||reload;
+ root.querySelector('[data-action="reload-data"]').hidden=!reload;
+ const backup=root.querySelector('[data-action="export-backup"]');
+ backup.hidden=!db.sessions.length;
+ root.querySelector('[data-action="export-original"]').hidden=state.reason!=='read'||S.readOriginal()===null;
+}
 function setView(v){view=v;$('#layout')?.classList.remove('show-menu');render()}
 function toast(msg){const wrap=$('#toast-stack');const node=document.createElement('div');node.className='toast';node.textContent=msg;wrap.appendChild(node);setTimeout(()=>node.remove(),4200)}
 Lab.ui={toast};
@@ -900,7 +966,7 @@ function renderWorkbench(){
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
- return `${heading('历史记录')}
+ return `${heading('历史记录',btn('import',icon('upload')+' 导入 JSON','btn btn-sm'))}
   ${db.sessions.length?`<div class="history-toolbar"><input class="form-control" id="history-search" type="search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>`:
   C.emptyState('暂无历史记录','','history',btn('new',icon('plus')+' 创建测试','btn btn-primary'))}`;
 }
@@ -916,7 +982,7 @@ function render(){
  renderSidebar();renderTopbar();
  const root=$('#content');
  root.innerHTML=view==='history'?renderHistory():renderWorkbench();
- syncErgControl();paintLive();paintDevices();
+ syncErgControl();paintLive();paintDevices();paintStorage();
 }
 function newModal(){
  const a=T.readAthlete(db.athlete)||T.readAthlete(active()?.athlete)||{name:'',sex:'',age:'',ftp:''};
@@ -1084,18 +1150,23 @@ function exportedSession(s){const copy={id:s.id,type:s.type,schemaVersion:s.sche
  }
  return copy}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
+function downloadBackup(){
+ if(!db.sessions.length)return toast('暂无可备份的测试');
+ const now=new Date(),stamp=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+ const backup={schemaVersion:1,exportType:'backup',exportedAt:now.toISOString(),athlete:db.athlete??null,sessions:db.sessions.map(exportedSession)};
+ C.download(JSON.stringify(backup),`PaceLab_全部测试_${stamp}.json`,'application/json;charset=utf-8');
+}
 function downloadFit(s){if(!s)return;try{C.download(Lab.fit.encodeSession(s),`PaceLab_${safeFile(s.name)}.fit`,'application/octet-stream')}catch(error){toast(error.message)}}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
  if(data?.schemaVersion!==1||!Array.isArray(raw))throw Error('无法识别的文件格式或数据版本');
- if(raw.length>300)throw Error('一次导入的测试数量过多（上限 300）');
- const additions=[];
- for(const old of raw){
-  if(old?.type!=='lactate-step'||!Array.isArray(old.stages)||old.stages.length<3||old.stages.length>25)continue;
-  let v;try{v=T.validInput({...old.protocol,athlete:T.readAthlete(old.athlete),stageCount:old.stages.length,name:String(old.name||'导入测试'),samplingMode:old.protocol?.samplingMode||'assisted'})}catch{continue}
+ const additions=[],names=new Set(db.sessions.map(s=>s.name));
+ for(const [position,old] of raw.entries()){
+  if(old?.type!=='lactate-step'||!Array.isArray(old.stages)||old.stages.length<3||old.stages.length>25)throw Error(`第 ${position+1} 次测试格式无效，未导入任何记录`);
+  let v;try{v=T.validInput({...old.protocol,athlete:T.readAthlete(old.athlete),stageCount:old.stages.length,name:String(old.name||'导入测试'),samplingMode:old.protocol?.samplingMode||'assisted'})}catch(error){throw Error(`第 ${position+1} 次测试：${error.message}，未导入任何记录`)}
   const s=T.newSession(v);s.id=uid();s.createdAt=Number.isFinite(Date.parse(old.createdAt))?old.createdAt:new Date().toISOString();
-  s.name=v.name+([...db.sessions,...additions].some(x=>x.name===v.name)?'（导入）':'');
+  s.name=v.name+(names.has(v.name)?'（导入）':'');names.add(s.name);
   s.metadata={notes:String(old.metadata?.notes||'').slice(0,1500),device:String(old.metadata?.device||'').slice(0,120),environment:String(old.metadata?.environment||'').slice(0,120),operator:String(old.metadata?.operator||'').slice(0,120)};
   const resting=old.restingSample,lactate=C.n(resting?.lactate);
   if(resting?.skipped===true)s.restingSample={lactate:null,recordedAt:null,skipped:true};
@@ -1113,7 +1184,10 @@ function importSessions(data){
   additions.push(s);
  }
  if(!additions.length)throw Error('文件中没有可以导入的乳酸阶梯测试');
- pauseActive();db.sessions.push(...additions);db.activeId=additions.at(-1).id;persist();view='history';render();
+ pauseActive();
+ const imported={...db,sessions:[...db.sessions,...additions],activeId:additions.at(-1).id,athlete:db.athlete||T.readAthlete(data.athlete)};
+ if(!C.write(imported)){paintStorage();throw Error('无法保存到浏览器，未添加导入记录；请保留 JSON 文件，恢复存储后重试')}
+ db=imported;view='history';render();toast(`已导入 ${additions.length} 次测试`);
 }
 function createFromForm(){
  const form=$('#new-form');if(!form)return;
@@ -1162,6 +1236,10 @@ function handleClick(event){
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
   case 'export-hrv':case 'export-rr':{const s=getSession();if(s)C.download(H.exportCsv(s,action==='export-rr'),`PaceLab_${safeFile(s.name)}_${action==='export-rr'?'RR':'HRV'}.csv`,'text/csv;charset=utf-8');break;}
   case 'export-json':downloadJson(getSession());break;
+  case 'export-backup':downloadBackup();break;
+  case 'export-original':{const raw=S.readOriginal();if(raw!==null)C.download(raw,'PaceLab_原始数据.json','application/json;charset=utf-8');break;}
+  case 'retry-save':if(persist())toast('数据已保存');break;
+  case 'reload-data':if(window.confirm('重新载入会放弃本页未保存的更改。请确认已下载备份。')){window.removeEventListener('beforeunload',protectUnsaved);window.location.reload()}break;
   case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
   case 'delete':{
@@ -1202,7 +1280,15 @@ document.addEventListener('change',handleChange);
 document.addEventListener('submit',event=>{if(event.target.id==='new-form'){event.preventDefault();createFromForm()}});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#modal-root').innerHTML.trim())return;if(event.key==='Escape')closeModal()});
 $('#import-file').addEventListener('change',handleImport);
-window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续')}});
+window.addEventListener('storage',event=>{
+ if(event.storageArea!==localStorage||(event.key!==C.STORAGE_KEY&&event.key!==null))return;
+ const preserve=S.readStatus().status==='failed'||active()?.execution.status==='running';
+ if(!S.checkForConflict())return;
+ if(preserve){pauseActive();paintStorage();return}
+ db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续');
+});
+function protectUnsaved(event){if(S.readStatus().status==='failed'&&db.sessions.length){event.preventDefault();event.returnValue=''}}
+window.addEventListener('beforeunload',protectUnsaved);
 window.addEventListener('pagehide',()=>{D.slots.trainer.erg?.setDesired('stopped');const s=active();if(s?.execution.status==='running'){s.execution.elapsedMs=elapsedNow(s.execution);s.execution.startedAt=null;s.execution.status='paused';R.stopRecording(s);persist(s)}});
 D.subscribe(handleDeviceChange);
 D.subscribeHeart(packet=>{const s=active();if(s)H.capturePacket(s,packet)});

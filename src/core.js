@@ -1,7 +1,7 @@
 (function(){
   'use strict';
   const Lab=window.Lab=window.Lab||{};
-  const STORAGE_KEY='pacelab.sessions.v1';
+  const STORAGE_KEY=Lab.storage.STORAGE_KEY;
   const esc=(v)=>String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const attr=esc;
   const n=(v)=>{if(v===''||v==null)return null;const x=Number(v);return Number.isFinite(x)?x:null};
@@ -48,8 +48,8 @@
   };
   const icon=(name,cls='icon')=>`<svg class="${cls}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${ico[name]||ico.info}</svg>`;
   const emptyState=(title,desc,iconName='activity',button='')=>`<div class="card empty"><div class="empty-illustration">${icon(iconName)}</div><h3>${esc(title)}</h3>${desc?`<p>${esc(desc)}</p>`:''}${button}</div>`;
-  const read=()=>{try{const value=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');return value?.schemaVersion===1&&Array.isArray(value.sessions)?value:{schemaVersion:1,sessions:[],activeId:null}}catch{return {schemaVersion:1,sessions:[],activeId:null}}};
-  const write=(v)=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(v));return true}catch{window.Lab?.ui?.toast?.('浏览器存储失败，请导出 JSON 备份数据');return false}};
+  const read=()=>Lab.storage.readDatabase();
+  const write=(v)=>Lab.storage.writeDatabase(v);
   const download=(content,name,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)};
   const csvCell=(x)=>{const v=String(x??'');const safe=/^[=+@\-\t\r]/.test(v)?"'"+v:v;return `"${safe.replace(/"/g,'""')}"`};
   const sessionCsv=(s)=>{const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','sample_time_ms','note','athlete_name','athlete_sex','athlete_age','ftp_w','protocol_preset','resting_lactate_mmol_l','resting_sample_recorded_at','resting_sample_skipped'];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.sampleAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',Lab.tests?.readGoalId(s.protocol.preset)||s.protocol.preset||'',s.restingSample?.lactate??'',s.restingSample?.recordedAt??'',s.restingSample?.skipped??'']);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};

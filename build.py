@@ -7,7 +7,7 @@ css=(ROOT/'assets/styles.css').read_text(encoding='utf-8')
 css=re.sub(r"@import url\([^;]+;",'',css)
 html=html.replace('  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">\n','')
 html=re.sub(r'<link rel="stylesheet" href="assets/styles\.css(?:\?[^"]*)?">',lambda _:f'<style>\n{css}\n</style>',html)
-for name in ['core','tests','charts','erg','devices','hrv','recording','fit','app']:
+for name in ['storage','core','tests','charts','erg','devices','hrv','recording','fit','app']:
     path=f'src/{name}.js'
     js=(ROOT/path).read_text(encoding='utf-8')
     html=re.sub(r'<script src="'+re.escape(path)+r'(?:\?[^"]*)?"></script>',lambda _:f'<script>\n{js}\n</script>',html)

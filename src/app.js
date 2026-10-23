@@ -2,7 +2,7 @@
 'use strict';
 const Lab=window.Lab;
 const C=Lab.core,T=Lab.tests,Charts=Lab.charts;
-const D=Lab.devices,R=Lab.recording,H=Lab.hrv;
+const D=Lab.devices,R=Lab.recording,H=Lab.hrv,S=Lab.storage;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
 let lastRecordingSave=0;
@@ -19,7 +19,21 @@ const btn=(action,label,style='btn',extra='')=>`<button class="${style}" data-ac
 const sexLabel=sex=>({male:'男',female:'女',undisclosed:'不透露'}[sex]||'');
 function athleteText(a){return a?[a.name,sexLabel(a.sex),`${a.age} 岁`,`FTP ${a.ftp} W`].join(' · '):''}
 function athleteLine(s){const parts=[athleteText(s.athlete),T.goals.find(g=>g.id===T.readGoalId(s.protocol.goal))?.name].filter(Boolean);return parts.length?`<div class="athlete-line">${parts.map(esc).join(' · ')}</div>`:''}
-function persist(s=null){if(s)s.updatedAt=new Date().toISOString();C.write(db)}
+function persist(s=null){if(s)s.updatedAt=new Date().toISOString();const saved=C.write(db);paintStorage();return saved}
+function paintStorage(){
+ const root=$('#storage-status');if(!root)return;
+ const state=S.readStatus(),failed=state.status==='failed',reload=['read','conflict'].includes(state.reason);
+ root.hidden=!db.sessions.length&&!failed;root.classList.toggle('has-error',failed);
+ const message=state.reason==='read'?'无法读取本地记录':state.reason==='conflict'?'其他标签页已更新记录':failed?'更改尚未保存':'已保存到此浏览器';
+ const detail=state.reason==='read'?(db.sessions.length?'原有数据未被覆盖。本页新记录尚未保存，请下载备份。':'原有数据未被覆盖，可先导出原始数据。'):state.reason==='conflict'?'本页数据已保留。请先备份，再重新载入。':failed?'存储不可用或空间不足。请先备份，避免刷新后丢失更改。':`${db.sessions.length} 次测试${state.savedAt?' · 最近保存 '+new Date(state.savedAt).toLocaleTimeString('zh-CN',{hour12:false}):''}`;
+ if($('#storage-message').textContent!==message)$('#storage-message').textContent=message;
+ $('#storage-detail').textContent=detail;
+ root.querySelector('[data-action="retry-save"]').hidden=!failed||reload;
+ root.querySelector('[data-action="reload-data"]').hidden=!reload;
+ const backup=root.querySelector('[data-action="export-backup"]');
+ backup.hidden=!db.sessions.length;
+ root.querySelector('[data-action="export-original"]').hidden=state.reason!=='read'||S.readOriginal()===null;
+}
 function setView(v){view=v;$('#layout')?.classList.remove('show-menu');render()}
 function toast(msg){const wrap=$('#toast-stack');const node=document.createElement('div');node.className='toast';node.textContent=msg;wrap.appendChild(node);setTimeout(()=>node.remove(),4200)}
 Lab.ui={toast};
@@ -156,7 +170,7 @@ function renderWorkbench(){
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
- return `${heading('历史记录')}
+ return `${heading('历史记录',btn('import',icon('upload')+' 导入 JSON','btn btn-sm'))}
   ${db.sessions.length?`<div class="history-toolbar"><input class="form-control" id="history-search" type="search" aria-label="搜索测试名称" placeholder="搜索测试名称" value="${esc(search)}"></div><div class="history-list" id="history-list">${renderHistoryItems(filtered)}</div>`:
   C.emptyState('暂无历史记录','','history',btn('new',icon('plus')+' 创建测试','btn btn-primary'))}`;
 }
@@ -172,7 +186,7 @@ function render(){
  renderSidebar();renderTopbar();
  const root=$('#content');
  root.innerHTML=view==='history'?renderHistory():renderWorkbench();
- syncErgControl();paintLive();paintDevices();
+ syncErgControl();paintLive();paintDevices();paintStorage();
 }
 function newModal(){
  const a=T.readAthlete(db.athlete)||T.readAthlete(active()?.athlete)||{name:'',sex:'',age:'',ftp:''};
@@ -340,18 +354,23 @@ function exportedSession(s){const copy={id:s.id,type:s.type,schemaVersion:s.sche
  }
  return copy}
 function downloadJson(s){if(!s)return toast('请先创建测试');C.download(JSON.stringify({schemaVersion:1,exportType:'session',exportedAt:new Date().toISOString(),session:exportedSession(s)},null,2),`PaceLab_${safeFile(s.name)}.json`,'application/json;charset=utf-8')}
+function downloadBackup(){
+ if(!db.sessions.length)return toast('暂无可备份的测试');
+ const now=new Date(),stamp=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+ const backup={schemaVersion:1,exportType:'backup',exportedAt:now.toISOString(),athlete:db.athlete??null,sessions:db.sessions.map(exportedSession)};
+ C.download(JSON.stringify(backup),`PaceLab_全部测试_${stamp}.json`,'application/json;charset=utf-8');
+}
 function downloadFit(s){if(!s)return;try{C.download(Lab.fit.encodeSession(s),`PaceLab_${safeFile(s.name)}.fit`,'application/octet-stream')}catch(error){toast(error.message)}}
 function safeFile(s){return String(s).replace(/[\\/:*?"<>|\n\r]/g,'_').slice(0,70)||'测试'}
 function importSessions(data){
  const raw=data?.exportType==='backup'?data.sessions:data?.exportType==='session'?[data.session]:null;
  if(data?.schemaVersion!==1||!Array.isArray(raw))throw Error('无法识别的文件格式或数据版本');
- if(raw.length>300)throw Error('一次导入的测试数量过多（上限 300）');
- const additions=[];
- for(const old of raw){
-  if(old?.type!=='lactate-step'||!Array.isArray(old.stages)||old.stages.length<3||old.stages.length>25)continue;
-  let v;try{v=T.validInput({...old.protocol,athlete:T.readAthlete(old.athlete),stageCount:old.stages.length,name:String(old.name||'导入测试'),samplingMode:old.protocol?.samplingMode||'assisted'})}catch{continue}
+ const additions=[],names=new Set(db.sessions.map(s=>s.name));
+ for(const [position,old] of raw.entries()){
+  if(old?.type!=='lactate-step'||!Array.isArray(old.stages)||old.stages.length<3||old.stages.length>25)throw Error(`第 ${position+1} 次测试格式无效，未导入任何记录`);
+  let v;try{v=T.validInput({...old.protocol,athlete:T.readAthlete(old.athlete),stageCount:old.stages.length,name:String(old.name||'导入测试'),samplingMode:old.protocol?.samplingMode||'assisted'})}catch(error){throw Error(`第 ${position+1} 次测试：${error.message}，未导入任何记录`)}
   const s=T.newSession(v);s.id=uid();s.createdAt=Number.isFinite(Date.parse(old.createdAt))?old.createdAt:new Date().toISOString();
-  s.name=v.name+([...db.sessions,...additions].some(x=>x.name===v.name)?'（导入）':'');
+  s.name=v.name+(names.has(v.name)?'（导入）':'');names.add(s.name);
   s.metadata={notes:String(old.metadata?.notes||'').slice(0,1500),device:String(old.metadata?.device||'').slice(0,120),environment:String(old.metadata?.environment||'').slice(0,120),operator:String(old.metadata?.operator||'').slice(0,120)};
   const resting=old.restingSample,lactate=C.n(resting?.lactate);
   if(resting?.skipped===true)s.restingSample={lactate:null,recordedAt:null,skipped:true};
@@ -369,7 +388,10 @@ function importSessions(data){
   additions.push(s);
  }
  if(!additions.length)throw Error('文件中没有可以导入的乳酸阶梯测试');
- pauseActive();db.sessions.push(...additions);db.activeId=additions.at(-1).id;persist();view='history';render();
+ pauseActive();
+ const imported={...db,sessions:[...db.sessions,...additions],activeId:additions.at(-1).id,athlete:db.athlete||T.readAthlete(data.athlete)};
+ if(!C.write(imported)){paintStorage();throw Error('无法保存到浏览器，未添加导入记录；请保留 JSON 文件，恢复存储后重试')}
+ db=imported;view='history';render();toast(`已导入 ${additions.length} 次测试`);
 }
 function createFromForm(){
  const form=$('#new-form');if(!form)return;
@@ -418,6 +440,10 @@ function handleClick(event){
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
   case 'export-hrv':case 'export-rr':{const s=getSession();if(s)C.download(H.exportCsv(s,action==='export-rr'),`PaceLab_${safeFile(s.name)}_${action==='export-rr'?'RR':'HRV'}.csv`,'text/csv;charset=utf-8');break;}
   case 'export-json':downloadJson(getSession());break;
+  case 'export-backup':downloadBackup();break;
+  case 'export-original':{const raw=S.readOriginal();if(raw!==null)C.download(raw,'PaceLab_原始数据.json','application/json;charset=utf-8');break;}
+  case 'retry-save':if(persist())toast('数据已保存');break;
+  case 'reload-data':if(window.confirm('重新载入会放弃本页未保存的更改。请确认已下载备份。')){window.removeEventListener('beforeunload',protectUnsaved);window.location.reload()}break;
   case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
   case 'delete':{
@@ -458,7 +484,15 @@ document.addEventListener('change',handleChange);
 document.addEventListener('submit',event=>{if(event.target.id==='new-form'){event.preventDefault();createFromForm()}});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#modal-root').innerHTML.trim())return;if(event.key==='Escape')closeModal()});
 $('#import-file').addEventListener('change',handleImport);
-window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续')}});
+window.addEventListener('storage',event=>{
+ if(event.storageArea!==localStorage||(event.key!==C.STORAGE_KEY&&event.key!==null))return;
+ const preserve=S.readStatus().status==='failed'||active()?.execution.status==='running';
+ if(!S.checkForConflict())return;
+ if(preserve){pauseActive();paintStorage();return}
+ db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续');
+});
+function protectUnsaved(event){if(S.readStatus().status==='failed'&&db.sessions.length){event.preventDefault();event.returnValue=''}}
+window.addEventListener('beforeunload',protectUnsaved);
 window.addEventListener('pagehide',()=>{D.slots.trainer.erg?.setDesired('stopped');const s=active();if(s?.execution.status==='running'){s.execution.elapsedMs=elapsedNow(s.execution);s.execution.startedAt=null;s.execution.status='paused';R.stopRecording(s);persist(s)}});
 D.subscribe(handleDeviceChange);
 D.subscribeHeart(packet=>{const s=active();if(s)H.capturePacket(s,packet)});

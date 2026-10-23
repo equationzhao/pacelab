@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const context=vm.createContext({window:{}});for(const name of ['core','charts'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),context);
+const context=vm.createContext({window:{}});for(const name of ['storage','core','charts'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),context);
 const {renderScatter}=context.window.Lab.charts;
 test('plots only original readings, including flagged samples, without paths or reference markers',()=>{
  const stages=[{power:100,lactate:1,quality:'normal'},{power:125,lactate:2,quality:'suspect'},{power:150,lactate:5,quality:'exclude'},{power:175,lactate:null},{power:200,lactate:''}];

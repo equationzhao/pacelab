@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const context=vm.createContext({window:{Lab:{}}});vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/recording.js'),'utf8'),context);
 const R=context.window.Lab.recording,t=Date.UTC(2026,9,22);
-const exportContext=vm.createContext({window:{}});for(const name of ['core','tests'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),exportContext);
+const exportContext=vm.createContext({window:{}});for(const name of ['storage','core','tests'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),exportContext);
 test('CSV exports raw readings, timestamps, athlete and resting data without computed fields',()=>{
  const {core:C,tests:T}=exportContext.window.Lab,s=T.newSession({name:'Raw export',startPower:120,increment:15,stageMinutes:2,stageCount:3,samplingMode:'solo',preset:'fine'});
  s.id='raw';s.athlete={name:'Rider',sex:'female',age:30,ftp:270};s.restingSample={lactate:1.1,recordedAt:'2026-10-22T00:00:00Z',skipped:false};
