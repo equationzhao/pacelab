@@ -2,7 +2,7 @@
 'use strict';
 const Lab=window.Lab;
 const C=Lab.core,T=Lab.tests,Charts=Lab.charts;
-const D=Lab.devices,R=Lab.recording;
+const D=Lab.devices,R=Lab.recording,H=Lab.hrv;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
 let lastRecordingSave=0;
@@ -49,7 +49,7 @@ function renderLive(s){
  return `<div class="card card-pad"><div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(e.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}${e.status!=='idle'?renderRestingSummary(s):''}
   <div class="live-card"><div class="live-top"><span class="live-label">阶段计时</span><span class="live-mode">${s.protocol.samplingMode==='solo'?'单人 · 分段采样':'双人 · 连续采样'}</span></div>
    ${e.status==='idle'?renderRestingEntry(s):`<div class="live-center"><div><div class="live-step" id="live-step">阶段 ${String(e.stageIndex+1).padStart(2,'0')} / ${String(s.stages.length).padStart(2,'0')}</div><div class="live-power" id="live-power">${st.power}<small>W</small></div></div><div class="timer-area"><label id="live-phase-label">${e.phase==='sampling'?'采样间隔':'当前阶段剩余'}</label><div id="live-time" class="timer">${fmtTime(st.durationSec*1000)}</div></div></div>
-   <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
+   <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm'],['alpha1','DFA α1','']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
    <div class="stage-progress"><div id="live-progress" class="stage-fill"></div></div>
    <div id="live-sample-entry">${shouldShowSampleEntry(s)?renderSampleEntry(s):''}</div>`}
    <div class="live-buttons" id="live-controls">${liveControls(s)}</div>
@@ -83,6 +83,21 @@ function renderDevices(s){
  const reason=D.describeSupport();
  return `<div class="card card-pad section-space device-panel"><div class="details"><div class="card-title">设备与活动记录</div>${btn('export-fit',icon('download')+' 导出 FIT','btn btn-sm',s.recording?'':'disabled')}</div><div class="device-grid">${Object.entries(D.specs).map(([kind,spec])=>`<div class="device-slot"><span>${esc(spec.label)}</span><strong id="device-${kind}-name"></strong><small id="device-${kind}-status"></small><button class="btn btn-sm" data-action="connect-device" data-kind="${kind}" id="device-${kind}-button" ${reason?'disabled':''}>连接</button></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div><div class="sensor-values">${[['power','实际功率','W'],['hr','实时心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong id="sensor-${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="recording-note" id="recording-note"></div>${reason?`<p class="device-warning" role="status">${esc(reason)}</p>`:''}</div>`;
 }
+function renderHrv(s){
+ return `<div class="card card-pad section-space" id="hrv-card"><div class="details"><div class="card-title">HRV · DFA α1</div><div class="details-tools">${btn('export-hrv',icon('download')+' HRV CSV','btn btn-sm',s.recording?.hrv?.estimates.length?'':'disabled')}${btn('export-rr','RR CSV','btn btn-sm',s.recording?.hrv?.packets.length?'':'disabled')}</div></div><div class="hrv-reading"><strong id="hrv-alpha">—</strong><span id="hrv-status" role="status"></span></div><div class="chart-surface" id="hrv-chart"></div><p class="hrv-note">需要心率带提供 RR · 2 分钟窗口 · 每 5 秒更新</p></div>`;
+}
+function paintHrv(s){
+ if(!s||!$('#hrv-card'))return;
+ const result=H.readCurrent(s),value=fmt(result.alpha1,2);
+ $('#hrv-alpha').textContent=value;
+ $('#hrv-status').textContent=(s.execution.status==='running'?'':s.recording?.hrv?'已保存 · ':'')+H.describeStatus(result);
+ const live=$('[data-live-sensor="alpha1"]');if(live)live.textContent=s.execution.status==='running'?value:'—';
+ const estimates=s.recording?.hrv?.estimates||[],chart=$('#hrv-chart');
+ const compact=chart.clientWidth<480,key=estimates.length+'-'+compact;
+ if(chart.dataset.key!==key){chart.innerHTML=Charts.renderHrv(estimates,s.recording?.startedAt,compact);chart.dataset.key=key}
+ $('[data-action="export-hrv"]').disabled=!estimates.length;
+ $('[data-action="export-rr"]').disabled=!s.recording?.hrv?.packets.length;
+}
 function paintDevices(){
  if(!$('#recording-note'))return;
  for(const [kind,slot] of Object.entries(D.slots)){
@@ -91,7 +106,7 @@ function paintDevices(){
   const button=$(`#device-${kind}-button`);button.textContent=slot.status==='connected'?'断开':slot.status==='connecting'?'连接中…':slot.name?'重新连接':'连接';button.disabled=slot.status==='connecting'||!!D.describeSupport();button.dataset.action=slot.status==='connected'?'disconnect-device':'connect-device';
  }
  const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
- const s=active(),r=s?.recording;
+ const s=active(),r=s?.recording;paintHrv(s);
  $('#recording-note').textContent=r?`${s.execution.status==='running'?'记录中':s.execution.status==='done'?'记录完成':'记录暂停'} · ${r.records.length.toLocaleString()} 条`:'';
  const trainer=D.slots.trainer,erg=trainer.erg?.state;
  const message=erg?.error||trainer.error||(trainer.status==='connecting'?'ERG 连接中…':erg?.phase==='running'?`ERG · ${erg.power} W`:erg?.phase==='setting'?erg.desiredPower===null?'ERG 设置中…':`ERG 设置 ${erg.desiredPower} W…`:erg?.phase==='paused'?'ERG 已暂停':erg?.phase==='stopped'?'ERG 已停止':erg?.phase==='ready'?'ERG 就绪':'');
@@ -124,6 +139,7 @@ function handleDeviceChange(){
 function captureActivity(now=Date.now()){
  const s=active();if(!s||s.execution.status!=='running')return;
  if(!s.recording)R.beginRecording(s,now);
+ H.captureEstimate(s,now);
  R.captureRecord(s,D.readSnapshot(now),now);
  if(now-lastRecordingSave>=5000){persist(s);lastRecordingSave=now}
  paintDevices();
@@ -136,7 +152,7 @@ function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+recordTable(s);
+ return head+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHrv(s)+recordTable(s);
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
@@ -400,6 +416,7 @@ function handleClick(event){
   case 'open-session':{const s=getSession();if(!s)return;if(s.id!==db.activeId)pauseActive();db.activeId=s.id;view='workbench';persist();render();break;}
   case 'scatter-metric':if(['lactate','hr','rpe'].includes(el.dataset.metric)){scatterMetric=el.dataset.metric;$('#scatter-card').innerHTML=renderScatter(active())}break;
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
+  case 'export-hrv':case 'export-rr':{const s=getSession();if(s)C.download(H.exportCsv(s,action==='export-rr'),`PaceLab_${safeFile(s.name)}_${action==='export-rr'?'RR':'HRV'}.csv`,'text/csv;charset=utf-8');break;}
   case 'export-json':downloadJson(getSession());break;
   case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
@@ -444,6 +461,7 @@ $('#import-file').addEventListener('change',handleImport);
 window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续')}});
 window.addEventListener('pagehide',()=>{D.slots.trainer.erg?.setDesired('stopped');const s=active();if(s?.execution.status==='running'){s.execution.elapsedMs=elapsedNow(s.execution);s.execution.startedAt=null;s.execution.status='paused';R.stopRecording(s);persist(s)}});
 D.subscribe(handleDeviceChange);
+D.subscribeHeart(packet=>{const s=active();if(s)H.capturePacket(s,packet)});
 setInterval(()=>{updateExecution();paintLive();captureActivity();paintDevices()},250);
 render();
 })();

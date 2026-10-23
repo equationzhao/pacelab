@@ -23,3 +23,5 @@
 .erg-status{font-size:12px;line-height:1.7;color:#23735b;margin:12px 0}.live-card .erg-status{color:#c5ef87;margin:2px 0 12px}.erg-status.has-error{color:#a04832}.live-card .erg-status.has-error{color:#ffc8ac}@media(max-width:640px){.device-slot{grid-template-columns:78px minmax(0,1fr) auto}}
 .scatter-controls{display:flex;gap:5px;flex-wrap:wrap}.scatter-controls .btn{padding:6px 9px;min-height:31px}#scatter-card .card-heading{flex-wrap:wrap}
 .erg-status:empty,.recording-note:empty{display:none}.device-warning{color:#a04832;font-size:12px;line-height:1.6;margin-top:12px}
+
+.hrv-reading{display:flex;align-items:center;gap:18px;margin:8px 0 18px}.hrv-reading strong{font-size:42px;font-variant-numeric:tabular-nums;color:#23735b}.hrv-reading span,.hrv-note{font-size:12px;color:#657780}.hrv-note{margin-top:14px;line-height:1.7}#hrv-chart{height:260px}.live-sensors{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:640px){.live-sensors{grid-template-columns:repeat(2,minmax(0,1fr))}.hrv-reading{gap:12px}.hrv-note{font-size:11px}}

@@ -4,7 +4,7 @@ const Lab=window.Lab;
 function beginRecording(s,now=Date.now()){
  if(!s.recording)s.recording={version:1,startedAt:now,endedAt:null,records:[],spans:[],windows:[]};
  const r=s.recording;
- if(!r.spans.length||r.spans.at(-1).endAt!==null)r.spans.push({startAt:now,endAt:null});
+ if(!r.spans.length||r.spans.at(-1).endAt!==null){r.spans.push({startAt:now,endAt:null});Lab.hrv?.resetWindow(r,now)}
  syncStage(s,now);
 }
 function syncStage(s,now=Date.now()){
@@ -15,7 +15,8 @@ function syncStage(s,now=Date.now()){
 }
 function stopRecording(s,now=Date.now(),done=false){
  const r=s.recording;if(!r)return;const span=r.spans.at(-1);if(span&&span.endAt===null)span.endAt=Math.max(span.startAt,now);
- if(done){r.endedAt=now;const current=r.windows.at(-1);if(current){current.endAt=now;if(current.effortEndAt===null)current.effortEndAt=now}}
+ if(done){r.endedAt=now;
+  if(r.hrv){r.hrv.packets=r.hrv.packets.filter(x=>x.timestamp<=now);r.hrv.estimates=r.hrv.estimates.filter(x=>x.timestamp<=now)}const current=r.windows.at(-1);if(current){current.endAt=now;if(current.effortEndAt===null)current.effortEndAt=now}}
 }
 function captureRecord(s,snapshot,now=Date.now()){
  const r=s.recording;if(!r||s.execution.status!=='running'||r.endedAt!==null)return false;
@@ -31,7 +32,7 @@ function readSampleTime(s,index,now=Date.now()){
 }
 function recoverRecording(s,now=Date.now()){
  if(s.execution.status!=='running')return false;
- const r=s.recording,checkpoint=Math.max(r?.windows.at(-1)?.startAt??0,r?.records.at(-1)?.timestamp??s.execution.startedAt??now);
+ const r=s.recording,checkpoint=Math.max(r?.windows.at(-1)?.startAt??0,r?.records.at(-1)?.timestamp??s.execution.startedAt??now,r?.hrv?.packets.at(-1)?.timestamp??0);
  // Only the last observed instant is recoverable after a reload; never invent BLE history.
  s.execution.elapsedMs=(s.execution.elapsedMs||0)+Math.max(0,checkpoint-(s.execution.startedAt||checkpoint));
  s.execution.status='paused';s.execution.startedAt=null;stopRecording(s,checkpoint);return true;
@@ -54,8 +55,9 @@ function readRecording(raw,stageCount){
   return windows?{index:x.index,startAt:x.startAt,endAt:x.endAt,effortEndAt:x.effortEndAt}:{startAt:x.startAt,endAt:x.endAt};
  })};
  const r={version:1,startedAt:raw.startedAt,endedAt:raw.endedAt,records,spans:readRanges(raw.spans),windows:readRanges(raw.windows,true)};
+ if(raw.hrv!=null)r.hrv=Lab.hrv.readHrv(raw.hrv,r,stageCount);
  // Exporting a running test produces a paused, self-contained snapshot on import.
- const end=r.endedAt??r.records.at(-1)?.timestamp??r.startedAt;
+ const end=r.endedAt??Math.max(r.records.at(-1)?.timestamp??r.startedAt,r.hrv?.packets.at(-1)?.timestamp??0,r.hrv?.estimates.at(-1)?.timestamp??0);
  for(const span of r.spans)if(span.endAt===null)span.endAt=Math.max(span.startAt,end);
  return r;
 }

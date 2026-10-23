@@ -56,3 +56,10 @@ test('a late failure from a dropped connection cannot disconnect its replacement
  await d.connectDevice('heart');rejectOld(Error('late GATT failure'));await first;
  assert.equal(d.slots.heart.status,'connected');assert.equal(d.slots.heart.name,'New HR');assert.equal(replacement.gatt.connected,true);await d.disconnectDevice('heart');
 });
+test('RR parsing retains all intervals and precision across HR and energy layouts',()=>{
+ const value=D.parseHeart(packet(11,[[0,31,'Uint8'],[1,145],[3,1234],[5,1024],[7,513],[9,512]]));
+ assert.deepEqual(Array.from(value.rr),[1000,500.9765625,500]);assert.equal(value.contact,true);
+ assert.deepEqual(Array.from(D.parseHeart(packet(4,[[0,16,'Uint8'],[1,120,'Uint8'],[2,512]])).rr),[500]);
+ assert.equal(D.parseHeart(packet(4,[[0,20,'Uint8'],[1,120,'Uint8'],[2,512]])).contact,false);
+ for(const values of [[3,[[0,16,'Uint8']]],[2,[[0,16,'Uint8']]],[3,[[0,8,'Uint8']]]])assert.throws(()=>D.parseHeart(packet(...values)));
+});

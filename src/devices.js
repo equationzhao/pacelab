@@ -4,12 +4,18 @@ const Lab=window.Lab;
 const specs={power:{label:'功率计',service:0x1818,characteristic:0x2a63},heart:{label:'心率带',service:0x180d,characteristic:0x2a37},trainer:{label:'ERG 骑行台',service:0x1826,characteristic:0x2ad2}};
 const slots=Object.fromEntries(Object.keys(specs).map(key=>[key,{status:'disconnected',name:'',values:{},crank:null}]));
 const listeners=new Set();
+const heartListeners=new Set();
+function emitHeart(packet){heartListeners.forEach(fn=>fn(packet))}
 function emitChange(){listeners.forEach(fn=>fn())}
 function parseHeart(view){
  if(view.byteLength<2)throw Error('心率数据不完整');
  const flags=view.getUint8(0),hr=flags&1?view.getUint16(1,true):view.getUint8(1);
+ let offset=flags&1?3:2;const rr=[];
+ if(flags&8)offset+=2;
+ if(offset>view.byteLength||(flags&16)&&((view.byteLength-offset)%2||offset===view.byteLength))throw Error('RR 数据不完整');
+ if(flags&16)for(;offset<view.byteLength;offset+=2)rr.push(view.getUint16(offset,true)*1000/1024);
  // Contact status is meaningful only when the sensor advertises contact support.
- return {hr:(flags&4)&&!(flags&2)?null:hr>0&&hr<255?hr:null};
+ return {hr:(flags&4)&&!(flags&2)?null:hr>0&&hr<255?hr:null,rr,contact:flags&4?!!(flags&2):null};
 }
 function parsePower(view,previous=null,now=Date.now()){
  const flags=view.getUint16(0,true),power=view.getInt16(2,true);let offset=4,crank=null,cadence;
@@ -41,6 +47,7 @@ function parseTrainer(view){
 }
 function describeSupport(){return !window.isSecureContext?'蓝牙连接需要 HTTPS 或 localhost，请打开在线版。':!navigator.bluetooth?'当前浏览器不支持蓝牙连接，请使用电脑端 Chrome / Edge 或 Android Chrome。':''}
 function clearConnection(slot){
+ if(slot===slots.heart)emitHeart({timestamp:Date.now(),rr:[],status:'disconnected'});
  slot.erg?.disposeController();slot.erg=null;
  if(slot.characteristic&&slot.onValue)slot.characteristic.removeEventListener('characteristicvaluechanged',slot.onValue);
  if(slot.device&&slot.onDisconnect)slot.device.removeEventListener('gattserverdisconnected',slot.onDisconnect);
@@ -64,7 +71,7 @@ async function connectDevice(kind){
    if(slot.connectionToken!==token)return;
    try{
     const now=Date.now(),view=event.target.value;let values;
-    if(kind==='heart')values=parseHeart(view);
+    if(kind==='heart'){const parsed=parseHeart(view);values={hr:parsed.hr};emitHeart({...parsed,timestamp:now})}
     else if(kind==='trainer')values=parseTrainer(view);
     else{const parsed=parsePower(view,slot.crank,now);values=parsed.values;slot.crank=parsed.crank}
     for(const [key,value] of Object.entries(values))slot.values[key]={value,at:now};
@@ -103,5 +110,5 @@ function readSnapshot(now=Date.now()){
  }
  return output;
 }
-Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)}};
+Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},subscribeHeart(fn){heartListeners.add(fn);return ()=>heartListeners.delete(fn)}};
 })();

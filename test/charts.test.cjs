@@ -14,3 +14,8 @@ test('preserves zero RPE, duplicate points, single readings and missing heart ra
  const hr=renderScatter(stages,'hr');assert.equal((hr.match(/<circle /g)||[]).length,1);assert.doesNotMatch(hr,/NaN|Infinity/);
  assert.match(renderScatter(stages,'lactate'),/暂无乳酸记录/);assert.equal(renderScatter(stages,'unknown'),'');
 });
+test('HRV chart shows saved estimates, stage and time without bridging invalid windows',()=>{
+ const estimates=[{timestamp:120000,alpha1:.8,status:'valid',stage:0,phase:'effort',beatCount:240},{timestamp:125000,alpha1:null,status:'artifacts'},{timestamp:130000,alpha1:.6,status:'valid',stage:1,phase:'sampling',beatCount:241}];
+ const svg=context.window.Lab.charts.renderHrv(estimates,0);assert.equal((svg.match(/<circle /g)||[]).length,2);assert.doesNotMatch(svg,/NaN|Infinity|<path/);assert.match(svg,/第 2 级 · 采样间隔 · DFA α1 0.600/);
+ assert.match(context.window.Lab.charts.renderHrv([],0),/暂无有效/);
+});

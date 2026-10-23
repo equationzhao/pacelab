@@ -33,6 +33,8 @@
 .scatter-controls{display:flex;gap:5px;flex-wrap:wrap}.scatter-controls .btn{padding:6px 9px;min-height:31px}#scatter-card .card-heading{flex-wrap:wrap}
 .erg-status:empty,.recording-note:empty{display:none}.device-warning{color:#a04832;font-size:12px;line-height:1.6;margin-top:12px}
 
+.hrv-reading{display:flex;align-items:center;gap:18px;margin:8px 0 18px}.hrv-reading strong{font-size:42px;font-variant-numeric:tabular-nums;color:#23735b}.hrv-reading span,.hrv-note{font-size:12px;color:#657780}.hrv-note{margin-top:14px;line-height:1.7}#hrv-chart{height:260px}.live-sensors{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:640px){.live-sensors{grid-template-columns:repeat(2,minmax(0,1fr))}.hrv-reading{gap:12px}.hrv-note{font-size:11px}}
+
 </style>
 </head>
 <body>
@@ -196,7 +198,22 @@ function renderScatter(stages,metric='lactate'){
  }).join('');
  return `<svg role="img" aria-label="${definition.label}与阶段目标功率原始数据散点图" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${grid.join('')}${dots}<text x="${(left+W-right)/2}" y="${H-7}" text-anchor="middle" font-size="12" fill="#72868d">阶段目标功率 / W</text><text x="15" y="${H/2}" text-anchor="middle" transform="rotate(-90 15 ${H/2})" font-size="12" fill="#72868d">${definition.label} / ${definition.unit}</text></svg>`;
 }
-Lab.charts={renderScatter};
+function renderHrv(estimates,startedAt,compact=false){
+ const points=estimates.filter(x=>x.status==='valid'&&Number.isFinite(x.alpha1));
+ if(!points.length)return '<div class="empty"><p>暂无有效 DFA α1 记录</p></div>';
+ const W=compact?340:720,H=240,left=42,right=16,top=20,bottom=40;
+ const maxX=Math.max(1,(estimates.at(-1).timestamp-startedAt)/60000);
+ let minY=0,maxY=2;for(const x of points){minY=Math.min(minY,Math.floor(x.alpha1*2)/2);maxY=Math.max(maxY,Math.ceil(x.alpha1*2)/2)}
+ const mapX=t=>left+(t-startedAt)/60000/maxX*(W-left-right),mapY=y=>top+(maxY-y)/(maxY-minY)*(H-top-bottom);
+ const grid=[];
+ for(let i=0;i<=4;i++){
+  const y=top+(H-top-bottom)*i/4,x=left+(W-left-right)*i/4;
+  grid.push(`<line x1="${left}" x2="${W-right}" y1="${y}" y2="${y}" stroke="#e8eeeb"/><text x="${left-9}" y="${y+4}" text-anchor="end" font-size="12" fill="#84959b">${round(maxY-(maxY-minY)*i/4,2)}</text><text x="${x}" y="${H-17}" text-anchor="middle" font-size="12" fill="#84959b">${round(maxX*i/4,1)}</text>`);
+ }
+ const dots=points.map(p=>`<circle cx="${mapX(p.timestamp)}" cy="${mapY(p.alpha1)}" r="3" fill="#178a72"><title>${esc(`${round((p.timestamp-startedAt)/60000,2)} min · 第 ${p.stage+1} 级 · ${p.phase==='sampling'?'采样间隔':'运动'} · DFA α1 ${p.alpha1.toFixed(3)} · ${p.beatCount} 搏`)}</title></circle>`).join('');
+ return `<svg role="img" aria-label="DFA α1 随时间变化" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${dots}<text x="${W-right}" y="${H-1}" text-anchor="end" font-size="11" fill="#84959b">经过时间 min（含暂停）</text></svg>`;
+}
+Lab.charts={renderScatter,renderHrv};
 })();
 
 </script>
@@ -327,12 +344,18 @@ const Lab=window.Lab;
 const specs={power:{label:'功率计',service:0x1818,characteristic:0x2a63},heart:{label:'心率带',service:0x180d,characteristic:0x2a37},trainer:{label:'ERG 骑行台',service:0x1826,characteristic:0x2ad2}};
 const slots=Object.fromEntries(Object.keys(specs).map(key=>[key,{status:'disconnected',name:'',values:{},crank:null}]));
 const listeners=new Set();
+const heartListeners=new Set();
+function emitHeart(packet){heartListeners.forEach(fn=>fn(packet))}
 function emitChange(){listeners.forEach(fn=>fn())}
 function parseHeart(view){
  if(view.byteLength<2)throw Error('心率数据不完整');
  const flags=view.getUint8(0),hr=flags&1?view.getUint16(1,true):view.getUint8(1);
+ let offset=flags&1?3:2;const rr=[];
+ if(flags&8)offset+=2;
+ if(offset>view.byteLength||(flags&16)&&((view.byteLength-offset)%2||offset===view.byteLength))throw Error('RR 数据不完整');
+ if(flags&16)for(;offset<view.byteLength;offset+=2)rr.push(view.getUint16(offset,true)*1000/1024);
  // Contact status is meaningful only when the sensor advertises contact support.
- return {hr:(flags&4)&&!(flags&2)?null:hr>0&&hr<255?hr:null};
+ return {hr:(flags&4)&&!(flags&2)?null:hr>0&&hr<255?hr:null,rr,contact:flags&4?!!(flags&2):null};
 }
 function parsePower(view,previous=null,now=Date.now()){
  const flags=view.getUint16(0,true),power=view.getInt16(2,true);let offset=4,crank=null,cadence;
@@ -364,6 +387,7 @@ function parseTrainer(view){
 }
 function describeSupport(){return !window.isSecureContext?'蓝牙连接需要 HTTPS 或 localhost，请打开在线版。':!navigator.bluetooth?'当前浏览器不支持蓝牙连接，请使用电脑端 Chrome / Edge 或 Android Chrome。':''}
 function clearConnection(slot){
+ if(slot===slots.heart)emitHeart({timestamp:Date.now(),rr:[],status:'disconnected'});
  slot.erg?.disposeController();slot.erg=null;
  if(slot.characteristic&&slot.onValue)slot.characteristic.removeEventListener('characteristicvaluechanged',slot.onValue);
  if(slot.device&&slot.onDisconnect)slot.device.removeEventListener('gattserverdisconnected',slot.onDisconnect);
@@ -387,7 +411,7 @@ async function connectDevice(kind){
    if(slot.connectionToken!==token)return;
    try{
     const now=Date.now(),view=event.target.value;let values;
-    if(kind==='heart')values=parseHeart(view);
+    if(kind==='heart'){const parsed=parseHeart(view);values={hr:parsed.hr};emitHeart({...parsed,timestamp:now})}
     else if(kind==='trainer')values=parseTrainer(view);
     else{const parsed=parsePower(view,slot.crank,now);values=parsed.values;slot.crank=parsed.crank}
     for(const [key,value] of Object.entries(values))slot.values[key]={value,at:now};
@@ -426,7 +450,125 @@ function readSnapshot(now=Date.now()){
  }
  return output;
 }
-Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)}};
+Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},subscribeHeart(fn){heartListeners.add(fn);return ()=>heartListeners.delete(fn)}};
+})();
+
+</script>
+  <script>
+(function(){
+'use strict';
+const Lab=window.Lab;
+const METHOD='dfa1-linear-4-16-v1',WINDOW_MS=120000,STEP_MS=5000;
+const statuses=['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'];
+const trackers=new WeakMap();
+function computeSlope(xs,ys){
+ const mx=xs.reduce((a,b)=>a+b,0)/xs.length,my=ys.reduce((a,b)=>a+b,0)/ys.length;
+ let xy=0,xx=0;for(let i=0;i<xs.length;i++){xy+=(xs[i]-mx)*(ys[i]-my);xx+=(xs[i]-mx)**2}
+ return xx>0?xy/xx:null;
+}
+function computeAlpha1(rr){
+ if(rr.length<64||rr.some(x=>!Number.isFinite(x)||x<=0))return null;
+ const mean=rr.reduce((a,b)=>a+b,0)/rr.length;let sum=0;
+ const profile=rr.map(value=>(sum+=value-mean)),xs=[],ys=[];
+ // DFA1: integrated, mean-centred RR, linear detrending, all integer scales 4..16.
+ // Use non-overlapping segments from both ends so the tail is represented.
+ for(let size=4;size<=16;size++){
+  const count=Math.floor(rr.length/size),mid=(size-1)/2,xx=size*(size*size-1)/12;
+  let squared=0;
+  for(let side=0;side<2;side++)for(let part=0;part<count;part++){
+   const start=side?rr.length-(part+1)*size:part*size;
+   let y=0,xy=0;for(let j=0;j<size;j++){y+=profile[start+j];xy+=(j-mid)*profile[start+j]}
+   const intercept=y/size,slope=xy/xx;
+   for(let j=0;j<size;j++)squared+=(profile[start+j]-intercept-slope*(j-mid))**2;
+  }
+  const fluctuation=Math.sqrt(squared/(2*count*size));
+  if(fluctuation<1e-8)return null;
+  xs.push(Math.log(size));ys.push(Math.log(fluctuation));
+ }
+ const alpha=computeSlope(xs,ys);return Number.isFinite(alpha)?alpha:null;
+}
+function countArtifacts(rr){
+ return rr.reduce((count,value,i)=>{
+  const local=rr.slice(Math.max(0,i-5),i+6).sort((a,b)=>a-b),mid=Math.floor(local.length/2);
+  const median=local.length%2?local[mid]:(local[mid-1]+local[mid])/2;
+  return count+(value<250||value>2000||Math.abs(value-median)>median*.2?1:0);
+ },0);
+}
+function resetWindow(r,startAt,status='waiting'){
+ trackers.set(r,{startAt,beats:[],lastPacketAt:null,lastBeatAt:null,status,result:null});
+}
+function capturePacket(s,packet){
+ const r=s.recording,span=r?.spans.at(-1),now=packet.timestamp;
+ if(!r||s.execution.status!=='running'||r.endedAt!==null||!span||span.endAt!==null||now<span.startAt)return;
+ if(!r.hrv)r.hrv={version:1,method:METHOD,packets:[],estimates:[]};
+ let tracker=trackers.get(r);if(!tracker){resetWindow(r,span.startAt);tracker=trackers.get(r)}
+ const rr=packet.rr||[],status=packet.status||(packet.contact===false?'contact':rr.length?'collecting':'no-rr');
+ // Keep received values, including suspect beats, unchanged for later analysis.
+ if(rr.length)r.hrv.packets.push({timestamp:now,stage:s.execution.stageIndex,phase:s.execution.phase,rr:rr.slice(),contact:packet.contact??null});
+ if(status==='no-rr'&&tracker.lastPacketAt!==null)return;
+ if(status!=='collecting'){resetWindow(r,now,status);return}
+ if(rr.some(ms=>ms<250||ms>2000)){resetWindow(r,now,'artifacts');trackers.get(r).artifactCount=rr.filter(ms=>ms<250||ms>2000).length;return}
+ const duration=rr.reduce((a,b)=>a+b,0);
+ if(tracker.lastPacketAt!==null&&(now-tracker.lastPacketAt>5000||now<tracker.lastPacketAt||Math.abs(tracker.lastBeatAt+duration-now)>2000)){
+  resetWindow(r,now-duration);tracker=trackers.get(r);
+ }
+ let at=tracker.lastBeatAt??now-duration;
+ for(const ms of rr){at+=ms;if(at-ms>=span.startAt&&at-ms>=tracker.startAt)tracker.beats.push({at,ms})}
+ tracker.lastPacketAt=now;tracker.lastBeatAt=at;tracker.status='collecting';
+ tracker.beats=tracker.beats.filter(beat=>beat.at>at-WINDOW_MS-2000);
+}
+function readCurrent(s,now=Date.now()){
+ const r=s.recording,tracker=r&&trackers.get(r);
+ if(s.execution.status!=='running')return r?.hrv?.estimates.at(-1)??{alpha1:null,status:'waiting',beatCount:0,artifactCount:0,coverageMs:0};
+ const empty={alpha1:null,status:tracker?.status??'waiting',beatCount:tracker?.artifactCount||0,artifactCount:tracker?.artifactCount||0,coverageMs:0,windowStart:null,windowEnd:null};
+ if(tracker?.lastPacketAt==null)return empty;
+ if(now-tracker.lastPacketAt>5000||now<tracker.lastPacketAt)return {...empty,status:'stale'};
+ if(tracker.result&&now-tracker.result.timestamp<STEP_MS)return tracker.result;
+ const end=tracker.lastBeatAt,beats=tracker.beats.filter(beat=>beat.at>end-WINDOW_MS),rr=beats.map(beat=>beat.ms);
+ const coverageMs=rr.reduce((a,b)=>a+b,0),artifactCount=countArtifacts(rr);
+ const result={...empty,timestamp:now,beatCount:rr.length,artifactCount,coverageMs,windowStart:beats.length?beats[0].at-beats[0].ms:null,windowEnd:end};
+ if(coverageMs<WINDOW_MS||rr.length<64)result.status='collecting';
+ else if(artifactCount)result.status='artifacts';
+ else{result.alpha1=computeAlpha1(rr);result.status=result.alpha1===null?'flat':'valid'}
+ tracker.result=result;return result;
+}
+function captureEstimate(s,now=Date.now()){
+ const r=s.recording;if(!r?.hrv||s.execution.status!=='running'||r.endedAt!==null)return;
+ if(r.hrv.estimates.length&&now-r.hrv.estimates.at(-1).timestamp<STEP_MS)return;
+ r.hrv.estimates.push({...readCurrent(s,now),timestamp:now,stage:s.execution.stageIndex,phase:s.execution.phase});
+}
+function describeStatus(result){
+ const labels={waiting:'等待心率带 RR',collecting:`采集中 · ${Math.min(120,Math.floor((result.coverageMs||0)/1000))}/120 秒`,valid:`${result.beatCount} 搏 · 最近 2 分钟`,artifacts:`RR 异常 · ${result.artifactCount} 搏`,flat:'RR 无有效波动',stale:'RR 信号中断', 'no-rr':'心率带未提供 RR',contact:'心率带接触不良',disconnected:'心率带已断开'};
+ return labels[result.status]||labels.waiting;
+}
+function readHrv(raw,r,stageCount){
+ if(raw==null)return null;
+ const invalid=()=>{throw Error('HRV 记录损坏，无法导入')};
+ if(raw.version!==1||raw.method!==METHOD||!Array.isArray(raw.packets)||raw.packets.length>172800||!Array.isArray(raw.estimates)||raw.estimates.length>17280)invalid();
+ const end=r.endedAt??4102444800000;
+ function readRows(rows,convert){let last=r.startedAt;return rows.map(x=>{
+  if(!x||!Number.isFinite(x.timestamp)||x.timestamp<last||x.timestamp>end||!Number.isInteger(x.stage)||x.stage<0||x.stage>=stageCount||!['effort','sampling'].includes(x.phase))invalid();last=x.timestamp;
+  return {timestamp:x.timestamp,stage:x.stage,phase:x.phase,...convert(x)};
+ })}
+ let beatCount=0;
+ const packets=readRows(raw.packets,x=>{
+  if(!Array.isArray(x.rr)||!x.rr.length||x.rr.length>256||x.rr.some(ms=>!Number.isFinite(ms)||ms<0||ms>65535*1000/1024)||![null,true,false].includes(x.contact))invalid();
+  beatCount+=x.rr.length;if(beatCount>400000)invalid();return {rr:x.rr.slice(),contact:x.contact};
+ });
+ const estimates=readRows(raw.estimates,x=>{
+  if(!statuses.includes(x.status)||!(x.alpha1===null||Number.isFinite(x.alpha1)&&Math.abs(x.alpha1)<10)||(x.status==='valid')!==(x.alpha1!==null)||!Number.isInteger(x.beatCount)||x.beatCount<0||x.beatCount>1000||!Number.isInteger(x.artifactCount)||x.artifactCount<0||x.artifactCount>x.beatCount||!Number.isFinite(x.coverageMs)||x.coverageMs<0||x.coverageMs>200000)invalid();
+  if(![x.windowStart,x.windowEnd].every(t=>t==null||Number.isFinite(t)&&t>=r.startedAt&&t<=end+2000)||x.windowStart!=null&&x.windowEnd<x.windowStart)invalid();
+  return {alpha1:x.alpha1,status:x.status,beatCount:x.beatCount,artifactCount:x.artifactCount,coverageMs:x.coverageMs,windowStart:x.windowStart??null,windowEnd:x.windowEnd??null};
+ });
+ return {version:1,method:METHOD,packets,estimates};
+}
+function exportCsv(s,raw=false){
+ const h=s.recording?.hrv,rows=raw?
+ [['received_at_ms','stage','phase','beat_in_packet','rr_ms','sensor_contact'],...(h?.packets||[]).flatMap(p=>p.rr.map((rr,i)=>[p.timestamp,p.stage+1,p.phase,i+1,rr,p.contact]))]:
+ [['timestamp_ms','stage','phase','dfa_alpha1','status','beat_count','artifact_count','window_start_ms','window_end_ms','coverage_ms','method'],...(h?.estimates||[]).map(x=>[x.timestamp,x.stage+1,x.phase,x.alpha1,x.status,x.beatCount,x.artifactCount,x.windowStart,x.windowEnd,x.coverageMs,h.method])];
+ return '\ufeff'+rows.map(row=>row.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+}
+Lab.hrv={METHOD,computeAlpha1,countArtifacts,resetWindow,capturePacket,readCurrent,captureEstimate,describeStatus,readHrv,exportCsv};
 })();
 
 </script>
@@ -437,7 +579,7 @@ const Lab=window.Lab;
 function beginRecording(s,now=Date.now()){
  if(!s.recording)s.recording={version:1,startedAt:now,endedAt:null,records:[],spans:[],windows:[]};
  const r=s.recording;
- if(!r.spans.length||r.spans.at(-1).endAt!==null)r.spans.push({startAt:now,endAt:null});
+ if(!r.spans.length||r.spans.at(-1).endAt!==null){r.spans.push({startAt:now,endAt:null});Lab.hrv?.resetWindow(r,now)}
  syncStage(s,now);
 }
 function syncStage(s,now=Date.now()){
@@ -448,7 +590,8 @@ function syncStage(s,now=Date.now()){
 }
 function stopRecording(s,now=Date.now(),done=false){
  const r=s.recording;if(!r)return;const span=r.spans.at(-1);if(span&&span.endAt===null)span.endAt=Math.max(span.startAt,now);
- if(done){r.endedAt=now;const current=r.windows.at(-1);if(current){current.endAt=now;if(current.effortEndAt===null)current.effortEndAt=now}}
+ if(done){r.endedAt=now;
+  if(r.hrv){r.hrv.packets=r.hrv.packets.filter(x=>x.timestamp<=now);r.hrv.estimates=r.hrv.estimates.filter(x=>x.timestamp<=now)}const current=r.windows.at(-1);if(current){current.endAt=now;if(current.effortEndAt===null)current.effortEndAt=now}}
 }
 function captureRecord(s,snapshot,now=Date.now()){
  const r=s.recording;if(!r||s.execution.status!=='running'||r.endedAt!==null)return false;
@@ -464,7 +607,7 @@ function readSampleTime(s,index,now=Date.now()){
 }
 function recoverRecording(s,now=Date.now()){
  if(s.execution.status!=='running')return false;
- const r=s.recording,checkpoint=Math.max(r?.windows.at(-1)?.startAt??0,r?.records.at(-1)?.timestamp??s.execution.startedAt??now);
+ const r=s.recording,checkpoint=Math.max(r?.windows.at(-1)?.startAt??0,r?.records.at(-1)?.timestamp??s.execution.startedAt??now,r?.hrv?.packets.at(-1)?.timestamp??0);
  // Only the last observed instant is recoverable after a reload; never invent BLE history.
  s.execution.elapsedMs=(s.execution.elapsedMs||0)+Math.max(0,checkpoint-(s.execution.startedAt||checkpoint));
  s.execution.status='paused';s.execution.startedAt=null;stopRecording(s,checkpoint);return true;
@@ -487,8 +630,9 @@ function readRecording(raw,stageCount){
   return windows?{index:x.index,startAt:x.startAt,endAt:x.endAt,effortEndAt:x.effortEndAt}:{startAt:x.startAt,endAt:x.endAt};
  })};
  const r={version:1,startedAt:raw.startedAt,endedAt:raw.endedAt,records,spans:readRanges(raw.spans),windows:readRanges(raw.windows,true)};
+ if(raw.hrv!=null)r.hrv=Lab.hrv.readHrv(raw.hrv,r,stageCount);
  // Exporting a running test produces a paused, self-contained snapshot on import.
- const end=r.endedAt??r.records.at(-1)?.timestamp??r.startedAt;
+ const end=r.endedAt??Math.max(r.records.at(-1)?.timestamp??r.startedAt,r.hrv?.packets.at(-1)?.timestamp??0,r.hrv?.estimates.at(-1)?.timestamp??0);
  for(const span of r.spans)if(span.endAt===null)span.endAt=Math.max(span.startAt,end);
  return r;
 }
@@ -505,7 +649,7 @@ const developerFields=[
  [0,'lactate','mmol/L',F32,4],[1,'rpe','0-10',F32,4],[2,'stage','',U16,2],[3,'target_power','W',U16,2],
  [4,'phase','',U8,1],[5,'sample_time','s',U32,4],[6,'entered_time','s',U32,4],[7,'sample_quality','',U8,1],
  [8,'resting_lactate','mmol/L',F32,4],[9,'resting_sample_time','s',U32,4],
- [10,'power_source','',U8,1],[11,'hr_source','',U8,1],[12,'cadence_source','',U8,1]
+ [10,'power_source','',U8,1],[11,'hr_source','',U8,1],[12,'cadence_source','',U8,1],[13,'dfa_alpha1','',F32,4],[14,'rr_artifact_count','beats',U16,2],[15,'rr_beat_count','beats',U16,2],[16,'hrv_status','',U8,1]
 ];
 function fitTime(ms){return Math.floor((ms-FIT_EPOCH)/1000)}
 function computeCrc(bytes){let crc=0;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=crc&1?(crc>>>1)^0xa001:crc>>>1}return crc}
@@ -550,6 +694,22 @@ function encodeSession(s,now=Date.now()){
  developerFields.forEach(([id,name,units,type])=>write(2,206,[[0,1,U8,0],[1,1,U8,id],[2,1,U8,type],[3,28,STR,name],[6,1,U8,1],[7,1,1,0],[8,12,STR,units]]));
  write(3,12,[[0,1,0,2],[1,1,0,6],[3,16,STR,'Indoor cycling']]);
  const messages=[],records=r.records.filter(x=>x.timestamp<=end).map(x=>({...x}));
+ const recordsBySecond=new Map(records.map(x=>[Math.floor(x.timestamp/1000),x]));
+ for(const estimate of r.hrv?.estimates||[]){
+  if(estimate.timestamp>end)continue;
+  let record=recordsBySecond.get(Math.floor(estimate.timestamp/1000));
+  if(!record||record.stage!==estimate.stage||record.phase!==estimate.phase){record={timestamp:estimate.timestamp,stage:estimate.stage,phase:estimate.phase,targetPower:s.stages[estimate.stage].power};records.push(record)}
+  record.hrv=estimate;
+ }
+ for(const packet of r.hrv?.packets||[]){
+  if(packet.timestamp>end||packet.contact===false)continue;
+  // Native FIT HRV time is uint16, scaled by 1000 (seconds); preserve raw RR to 1 ms.
+  for(let start=0;start<packet.rr.length;start+=127){
+   const values=packet.rr.slice(start,start+127),bytes=new Uint8Array(values.length*2),view=new DataView(bytes.buffer);
+   values.forEach((ms,i)=>view.setUint16(i*2,Math.round(ms),true));
+   messages.push({at:packet.timestamp,priority:1.5,run:()=>write(9,78,[[0,bytes.length,U16,bytes]])});
+  }
+ }
  const laps=r.windows.filter(w=>w.startAt<=end);
  laps.forEach(w=>{
   const st=s.stages[w.index];if(st.lactate==null&&st.rpe==null)return;
@@ -564,7 +724,7 @@ function encodeSession(s,now=Date.now()){
   messages.push({at:stop,priority:3,run:()=>write(4,21,[ts(stop),[0,1,0,0],[1,1,0,4]])});
  }
  records.forEach(x=>messages.push({at:x.timestamp,priority:1,run:()=>write(5,20,[ts(x.timestamp),[3,1,U8,x.hr],[4,1,U8,x.cadence],[6,2,U16,x.speed==null?null:x.speed*1000],[7,2,U16,x.power]],
-  [devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
+  [devField(13,x.hrv?.alpha1),devField(14,x.hrv?.artifactCount),devField(15,x.hrv?.beatCount),devField(16,x.hrv?['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'].indexOf(x.hrv.status):null),devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
  laps.forEach((w,i)=>{
   const stop=Math.min(end,w.endAt??end),st=s.stages[w.index],sampleTime=st.lactate!=null||st.rpe!=null?R.readSampleTime(s,w.index,end):null;
   messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6]],
@@ -586,7 +746,7 @@ Lab.fit={encodeSession,computeCrc,fitTime,developerFields};
 'use strict';
 const Lab=window.Lab;
 const C=Lab.core,T=Lab.tests,Charts=Lab.charts;
-const D=Lab.devices,R=Lab.recording;
+const D=Lab.devices,R=Lab.recording,H=Lab.hrv;
 const {esc,icon,fmt,dateText,uid}=C;
 let db=C.read();
 let lastRecordingSave=0;
@@ -633,7 +793,7 @@ function renderLive(s){
  return `<div class="card card-pad"><div class="session-line"><span class="session-title">${esc(s.name)}</span>${tag(e.status)}<span>${dateText(s.createdAt)}</span></div>${athleteLine(s)}${e.status!=='idle'?renderRestingSummary(s):''}
   <div class="live-card"><div class="live-top"><span class="live-label">阶段计时</span><span class="live-mode">${s.protocol.samplingMode==='solo'?'单人 · 分段采样':'双人 · 连续采样'}</span></div>
    ${e.status==='idle'?renderRestingEntry(s):`<div class="live-center"><div><div class="live-step" id="live-step">阶段 ${String(e.stageIndex+1).padStart(2,'0')} / ${String(s.stages.length).padStart(2,'0')}</div><div class="live-power" id="live-power">${st.power}<small>W</small></div></div><div class="timer-area"><label id="live-phase-label">${e.phase==='sampling'?'采样间隔':'当前阶段剩余'}</label><div id="live-time" class="timer">${fmtTime(st.durationSec*1000)}</div></div></div>
-   <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
+   <div class="live-sensors">${[['power','实际功率','W'],['hr','心率','bpm'],['cadence','踏频','rpm'],['alpha1','DFA α1','']].map(([key,label,unit])=>`<div><span>${label}</span><strong data-live-sensor="${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div>
    <div class="stage-progress"><div id="live-progress" class="stage-fill"></div></div>
    <div id="live-sample-entry">${shouldShowSampleEntry(s)?renderSampleEntry(s):''}</div>`}
    <div class="live-buttons" id="live-controls">${liveControls(s)}</div>
@@ -667,6 +827,21 @@ function renderDevices(s){
  const reason=D.describeSupport();
  return `<div class="card card-pad section-space device-panel"><div class="details"><div class="card-title">设备与活动记录</div>${btn('export-fit',icon('download')+' 导出 FIT','btn btn-sm',s.recording?'':'disabled')}</div><div class="device-grid">${Object.entries(D.specs).map(([kind,spec])=>`<div class="device-slot"><span>${esc(spec.label)}</span><strong id="device-${kind}-name"></strong><small id="device-${kind}-status"></small><button class="btn btn-sm" data-action="connect-device" data-kind="${kind}" id="device-${kind}-button" ${reason?'disabled':''}>连接</button></div>`).join('')}</div><div class="erg-status" data-erg-status aria-live="polite"></div><div class="sensor-values">${[['power','实际功率','W'],['hr','实时心率','bpm'],['cadence','踏频','rpm']].map(([key,label,unit])=>`<div><span>${label}</span><strong id="sensor-${key}">—</strong><small>${unit}</small></div>`).join('')}</div><div class="recording-note" id="recording-note"></div>${reason?`<p class="device-warning" role="status">${esc(reason)}</p>`:''}</div>`;
 }
+function renderHrv(s){
+ return `<div class="card card-pad section-space" id="hrv-card"><div class="details"><div class="card-title">HRV · DFA α1</div><div class="details-tools">${btn('export-hrv',icon('download')+' HRV CSV','btn btn-sm',s.recording?.hrv?.estimates.length?'':'disabled')}${btn('export-rr','RR CSV','btn btn-sm',s.recording?.hrv?.packets.length?'':'disabled')}</div></div><div class="hrv-reading"><strong id="hrv-alpha">—</strong><span id="hrv-status" role="status"></span></div><div class="chart-surface" id="hrv-chart"></div><p class="hrv-note">需要心率带提供 RR · 2 分钟窗口 · 每 5 秒更新</p></div>`;
+}
+function paintHrv(s){
+ if(!s||!$('#hrv-card'))return;
+ const result=H.readCurrent(s),value=fmt(result.alpha1,2);
+ $('#hrv-alpha').textContent=value;
+ $('#hrv-status').textContent=(s.execution.status==='running'?'':s.recording?.hrv?'已保存 · ':'')+H.describeStatus(result);
+ const live=$('[data-live-sensor="alpha1"]');if(live)live.textContent=s.execution.status==='running'?value:'—';
+ const estimates=s.recording?.hrv?.estimates||[],chart=$('#hrv-chart');
+ const compact=chart.clientWidth<480,key=estimates.length+'-'+compact;
+ if(chart.dataset.key!==key){chart.innerHTML=Charts.renderHrv(estimates,s.recording?.startedAt,compact);chart.dataset.key=key}
+ $('[data-action="export-hrv"]').disabled=!estimates.length;
+ $('[data-action="export-rr"]').disabled=!s.recording?.hrv?.packets.length;
+}
 function paintDevices(){
  if(!$('#recording-note'))return;
  for(const [kind,slot] of Object.entries(D.slots)){
@@ -675,7 +850,7 @@ function paintDevices(){
   const button=$(`#device-${kind}-button`);button.textContent=slot.status==='connected'?'断开':slot.status==='connecting'?'连接中…':slot.name?'重新连接':'连接';button.disabled=slot.status==='connecting'||!!D.describeSupport();button.dataset.action=slot.status==='connected'?'disconnect-device':'connect-device';
  }
  const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
- const s=active(),r=s?.recording;
+ const s=active(),r=s?.recording;paintHrv(s);
  $('#recording-note').textContent=r?`${s.execution.status==='running'?'记录中':s.execution.status==='done'?'记录完成':'记录暂停'} · ${r.records.length.toLocaleString()} 条`:'';
  const trainer=D.slots.trainer,erg=trainer.erg?.state;
  const message=erg?.error||trainer.error||(trainer.status==='connecting'?'ERG 连接中…':erg?.phase==='running'?`ERG · ${erg.power} W`:erg?.phase==='setting'?erg.desiredPower===null?'ERG 设置中…':`ERG 设置 ${erg.desiredPower} W…`:erg?.phase==='paused'?'ERG 已暂停':erg?.phase==='stopped'?'ERG 已停止':erg?.phase==='ready'?'ERG 就绪':'');
@@ -708,6 +883,7 @@ function handleDeviceChange(){
 function captureActivity(now=Date.now()){
  const s=active();if(!s||s.execution.status!=='running')return;
  if(!s.recording)R.beginRecording(s,now);
+ H.captureEstimate(s,now);
  R.captureRecord(s,D.readSnapshot(now),now);
  if(now-lastRecordingSave>=5000){persist(s);lastRecordingSave=now}
  paintDevices();
@@ -720,7 +896,7 @@ function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+recordTable(s);
+ return head+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHrv(s)+recordTable(s);
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
@@ -984,6 +1160,7 @@ function handleClick(event){
   case 'open-session':{const s=getSession();if(!s)return;if(s.id!==db.activeId)pauseActive();db.activeId=s.id;view='workbench';persist();render();break;}
   case 'scatter-metric':if(['lactate','hr','rpe'].includes(el.dataset.metric)){scatterMetric=el.dataset.metric;$('#scatter-card').innerHTML=renderScatter(active())}break;
   case 'export-csv':{const s=getSession();if(s){C.download(C.sessionCsv(s),`PaceLab_${safeFile(s.name)}.csv`,'text/csv;charset=utf-8')}break;}
+  case 'export-hrv':case 'export-rr':{const s=getSession();if(s)C.download(H.exportCsv(s,action==='export-rr'),`PaceLab_${safeFile(s.name)}_${action==='export-rr'?'RR':'HRV'}.csv`,'text/csv;charset=utf-8');break;}
   case 'export-json':downloadJson(getSession());break;
   case 'export-fit':downloadFit(getSession());break;
   case 'import':$('#import-file').click();break;
@@ -1028,6 +1205,7 @@ $('#import-file').addEventListener('change',handleImport);
 window.addEventListener('storage',event=>{if(event.key===C.STORAGE_KEY){db=C.read();for(const s of db.sessions)R.recoverRecording(s);syncErgControl();render();toast('其他标签页已更新数据；如需在此记录，请点击继续')}});
 window.addEventListener('pagehide',()=>{D.slots.trainer.erg?.setDesired('stopped');const s=active();if(s?.execution.status==='running'){s.execution.elapsedMs=elapsedNow(s.execution);s.execution.startedAt=null;s.execution.status='paused';R.stopRecording(s);persist(s)}});
 D.subscribe(handleDeviceChange);
+D.subscribeHeart(packet=>{const s=active();if(s)H.capturePacket(s,packet)});
 setInterval(()=>{updateExecution();paintLive();captureActivity();paintDevices()},250);
 render();
 })();

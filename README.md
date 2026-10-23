@@ -8,6 +8,7 @@
 - 开始第一级前可记录静息乳酸，也可直接跳过；静息值单独保存，并随 FIT、JSON 和 CSV 导出。
 - 记录乳酸、心率、RPE、样本质量和备注。
 - 通过蓝牙连接功率计（Cycling Power）、心率带（Heart Rate）及 ERG 骑行台（FTMS），查看实时功率、心率、踏频。
+- 心率带提供逐搏 RR 时，实时计算 DFA α1，查看时间趋势，保存原始 RR 与计算结果，并导出 HRV / RR CSV。
 - ERG 骑行台按运动阶段自动设置目标瓦数；单人采血间隔和手动暂停时暂停骑行台，下一运动阶段恢复，测试结束时停止。
 - 开始测试后按秒记录活动，暂停时停止记录；导出 FIT，包含设备读数、阶段分圈、静息乳酸及每级乳酸和 RPE。
 - 每级最后 30 秒自动展示乳酸值和 RPE 大号录入区，输入后自动保存；单人模式下持续显示至采样间隔结束。
@@ -27,9 +28,15 @@
 
 点击“导出 FIT”可下载当前活动，进行中也可导出快照。每级包含运动段与单人采样间隔，保存为一个 lap；暂停时间从 FIT 的 timer time 中扣除。乳酸与 RPE 使用 FIT developer fields，既保存在对应 lap，也附在采样时刻的 record。实时输入保留原采样时间，结束后首次补录则归到该级运动结束时刻，另存实际录入时间；修改后重新导出会使用最新数值。静息乳酸及其时间保存在 session 的 developer fields。第三方平台可能不展示这些自定义字段，但字段保留在原始 FIT 文件中。
 
-JSON 备份包含完整设备记录，可导入后重新导出 FIT；单次导入上限 32 MB。活动记录占用当前浏览器的本地存储空间，建议每次测试结束后同时下载 FIT 和 JSON，清理不再需要的历史测试。CSV 导出阶段手动记录、采样时间、个人资料和静息乳酸，实时设备流在 JSON / FIT 中。
+HRV 使用心率带广播的逐搏 RR 间期，普通 bpm 读数或骑行台转发的心率不能用于计算。开始测试后累计连续 2 分钟 RR，每 5 秒更新一次 DFA α1，展示数值、数据状态和时间散点图；暂停、断线或接触不良后重新累计，不跨中断拼接窗口。采样间隔仍属于活动记录，结果保留阶段和运动／采样标记。没有 RR、信号超过 5 秒未更新、数据不足、RR 无波动或存在异常时显示状态并留空数值。蓝牙不提供逐搏绝对时间，窗口时间由通知接收时间和 RR 累积重建；超过 2 秒的累计时间偏差也会重建窗口。
 
-散点图只展示已有阶段读数，不连线，不补点。正常、可疑及标记排除的样本均显示，以颜色区分；静息乳酸单独保存，不作为某一级功率的读数。历史 JSON 仍可导入，已有原始记录和协议参数继续保留；重新导出只包含测试数据。
+计算方法 `dfa1-linear-4-16-v1`：RR 去均值后积分，在 4–16 搏的全部整数尺度上分别从两端分段，做一阶线性去趋势，以总体残差均方根对尺度的双对数斜率得到 α1。至少需要 64 搏及完整 120 秒。RR 小于 250 ms、大于 2000 ms，或相对局部中位数（相邻最多 11 搏）偏差超过 20% 时判为异常；异常窗口不输出数值，不插值、不自动纠正原始 RR。这是基础 DFA1 实现，没有 Kubios 的 smoothness-priors 预处理或专有伪差校正，结果可能与 alphaHRV、Kubios 等应用不同。异常检查不能识别所有漏搏或伪差，数值不用于自动判定乳酸阈值。方法参考：[DFA 算法说明](https://nolds.readthedocs.io/en/latest/nolds.html#detrended-fluctuation-analysis)、[运动中 DFA α1 的 2 分钟窗口应用](https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2021.668812/full)。
+
+HRV 随测试自动保存在浏览器，历史测试可重新打开。JSON 保留原始 RR 的蓝牙精度、通知接收时间、接触状态、α1、质量状态和算法版本，导入后继续保留。HRV CSV 按计算时刻导出数值和质量信息；RR CSV 按每搏导出原始间期，以接收时间和包内顺序定位。阶段 CSV 的格式保持不变。FIT 使用标准 `hrv` 消息保存 RR（四舍五入到 1 ms，接触不良的数据只保留在 JSON / RR CSV），使用 record developer fields 保存 `dfa_alpha1`、`rr_artifact_count`、`rr_beat_count` 和 `hrv_status`。状态码依次为 0 等待、1 累计、2 有效、3 异常、4 无波动、5 信号过期、6 无 RR、7 接触不良、8 断开；无效 α1 留空。第三方平台是否展示这些字段取决于其支持情况。
+
+JSON 备份包含完整设备记录，可导入后重新导出 FIT；单次导入上限 32 MB。活动记录占用当前浏览器的本地存储空间，建议每次测试结束后同时下载 FIT 和 JSON，清理不再需要的历史测试。阶段 CSV 导出手动记录、采样时间、个人资料和静息乳酸，实时设备流在 JSON / FIT 中。
+
+乳酸、心率和 RPE 散点图只展示已有阶段读数，不连线，不补点。正常、可疑及标记排除的样本均显示，以颜色区分；静息乳酸单独保存，不作为某一级功率的读数。历史 JSON 仍可导入，已有原始记录和协议参数继续保留；重新导出只包含测试数据。
 
 开发时运行 `python3 -m http.server 5173`，访问 `http://localhost:5173`。运行 `python3 build.py` 更新单文件版本。
 
@@ -37,6 +44,6 @@ JSON 备份包含完整设备记录，可导入后重新导出 FIT；单次导�
 
 姓名、性别和年龄用于记录；协议参数由 FTP 和阶梯方案生成。个人资料随每次测试独立保存，兼容没有个人资料的旧记录。
 
-验证导出、散点图、蓝牙协议解析、ERG 控制、记录时间及 FIT 编码：`node --test test/*.test.cjs`。额外使用 Garmin 官方解码器验证：先运行 `npm install --prefix /tmp/pacelab-fit-check @garmin/fitsdk --no-save --no-package-lock`，再运行 `FIT_SDK_PATH=/tmp/pacelab-fit-check/node_modules/@garmin/fitsdk/src/index.js node --test test/fit.test.cjs`。运行时仍无外部依赖。
+验证 DFA α1、RR 采集、导出、散点图、蓝牙协议解析、ERG 控制、记录时间及 FIT 编码：`node --test test/*.test.cjs`。额外使用 Garmin 官方解码器验证：先运行 `npm install --prefix /tmp/pacelab-fit-check @garmin/fitsdk --no-save --no-package-lock`，再运行 `FIT_SDK_PATH=/tmp/pacelab-fit-check/node_modules/@garmin/fitsdk/src/index.js node --test test/fit.test.cjs`。运行时仍无外部依赖。
 
 浏览器流程验证脚本为 `test/browser-devices.cjs`，需先启动 localhost:5173 服务并安装 Playwright；通过 `NODE_PATH` 指向 Playwright 所在的 node_modules，`FIT_SDK_PATH` 指向上述 SDK，再运行 `node test/browser-devices.cjs`。可用 `CHROME_PATH` 指定 Chrome 路径、`PACELAB_URL` 指定本地服务地址。脚本使用模拟蓝牙设备，覆盖连接、通知、掉线、暂停恢复、导出与导入、移动端及单文件版本；真实硬件仍需实测。
