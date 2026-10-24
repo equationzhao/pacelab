@@ -47,6 +47,7 @@ function readRecording(raw,stageCount){
   if(!validTime(x.timestamp)||x.timestamp<raw.startedAt||raw.endedAt!==null&&x.timestamp>raw.endedAt||x.timestamp<previous||!Number.isInteger(x.stage)||x.stage<0||x.stage>=stageCount)invalid();previous=x.timestamp;
   const clean={timestamp:x.timestamp,stage:x.stage,phase:x.phase==='sampling'?'sampling':'effort',targetPower:Number.isFinite(x.targetPower)?Math.max(0,Math.min(1200,x.targetPower)):null};
   for(const [key,max] of [['power',65534],['hr',254],['cadence',254],['speed',65]]){clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=max?x[key]:null;clean[key+'Source']=['power','heart','trainer'].includes(x[key+'Source'])?x[key+'Source']:null}
+  for(const key of ['powerMeterPower','trainerPower'])if(Object.hasOwn(x,key))clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=65534?x[key]:null;
   return clean;
  });
  const readRanges=(ranges,windows=false)=>{let last=raw.startedAt;return ranges.map((x,i)=>{

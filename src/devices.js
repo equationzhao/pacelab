@@ -104,7 +104,7 @@ async function disconnectDevice(kind){
 }
 function readSnapshot(now=Date.now()){
  const fresh=(kind,key)=>{const slot=slots[kind],sample=slot.values[key];return slot.status==='connected'&&sample&&now>=sample.at&&now-sample.at<=5000&&Number.isFinite(sample.value)?{value:sample.value,source:kind}:null};
- const output={};
+ const output={powerMeterPower:fresh('power','power')?.value??null,trainerPower:fresh('trainer','power')?.value??null};
  for(const [key,kinds] of Object.entries({power:['power','trainer'],cadence:['power','trainer'],hr:['heart','trainer'],speed:['trainer']})){
   const sample=kinds.map(kind=>fresh(kind,key)).find(Boolean);output[key]=sample?.value??null;output[key+'Source']=sample?.source??null;
  }

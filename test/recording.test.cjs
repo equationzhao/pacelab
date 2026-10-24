@@ -45,3 +45,23 @@ test('JSON snapshot imports retain data, close running spans and reject damaged 
  const resumed=session();resumed.execution.stageIndex=2;R.beginRecording(resumed,t);assert.equal(R.readRecording(resumed.recording,3).windows[0].index,2);
  assert.equal(R.readRecording(null,3),null);
 });
+test('independent power streams survive JSON round trips without filling missing or legacy readings',()=>{
+ const s=session();R.beginRecording(s,t);
+ for(const [i,snapshot] of [
+  {power:230,powerSource:'power',powerMeterPower:230,trainerPower:220},
+  {power:221,powerSource:'trainer',powerMeterPower:null,trainerPower:221},
+  {power:0,powerSource:'power',powerMeterPower:0,trainerPower:null},
+  {power:null,powerSource:null,powerMeterPower:null,trainerPower:null},
+  {power:200,powerSource:'power'}
+ ].entries())R.captureRecord(s,snapshot,t+i*1000);
+ const read=raw=>R.readRecording(JSON.parse(JSON.stringify(raw)),3);
+ const imported=read(s.recording);
+ assert.deepEqual(Array.from(imported.records,x=>[x.power,x.powerSource,x.powerMeterPower,x.trainerPower]),[
+  [230,'power',230,220],[221,'trainer',null,221],[0,'power',0,null],[null,null,null,null],[200,'power',undefined,undefined]
+ ]);
+ const invalid=JSON.parse(JSON.stringify(s.recording));
+ for(const value of [-1,65535,'220',Infinity]){
+  Object.assign(invalid.records[0],{powerMeterPower:value,trainerPower:value});
+  const record=read(invalid).records[0];assert.equal(record.powerMeterPower,null);assert.equal(record.trainerPower,null);assert.equal(record.power,230);
+ }
+});

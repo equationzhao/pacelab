@@ -6,7 +6,8 @@ const developerFields=[
  [0,'lactate','mmol/L',F32,4],[1,'rpe','0-10',F32,4],[2,'stage','',U16,2],[3,'target_power','W',U16,2],
  [4,'phase','',U8,1],[5,'sample_time','s',U32,4],[6,'entered_time','s',U32,4],[7,'sample_quality','',U8,1],
  [8,'resting_lactate','mmol/L',F32,4],[9,'resting_sample_time','s',U32,4],
- [10,'power_source','',U8,1],[11,'hr_source','',U8,1],[12,'cadence_source','',U8,1],[13,'dfa_alpha1','',F32,4],[14,'rr_artifact_count','beats',U16,2],[15,'rr_beat_count','beats',U16,2],[16,'hrv_status','',U8,1]
+ [10,'power_source','',U8,1],[11,'hr_source','',U8,1],[12,'cadence_source','',U8,1],[13,'dfa_alpha1','',F32,4],[14,'rr_artifact_count','beats',U16,2],[15,'rr_beat_count','beats',U16,2],[16,'hrv_status','',U8,1],
+ [17,'power_meter_power','W',U16,2],[18,'trainer_power','W',U16,2]
 ];
 function fitTime(ms){return Math.floor((ms-FIT_EPOCH)/1000)}
 function computeCrc(bytes){let crc=0;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=crc&1?(crc>>>1)^0xa001:crc>>>1}return crc}
@@ -81,7 +82,7 @@ function encodeSession(s,now=Date.now()){
   messages.push({at:stop,priority:3,run:()=>write(4,21,[ts(stop),[0,1,0,0],[1,1,0,4]])});
  }
  records.forEach(x=>messages.push({at:x.timestamp,priority:1,run:()=>write(5,20,[ts(x.timestamp),[3,1,U8,x.hr],[4,1,U8,x.cadence],[6,2,U16,x.speed==null?null:x.speed*1000],[7,2,U16,x.power]],
-  [devField(13,x.hrv?.alpha1),devField(14,x.hrv?.artifactCount),devField(15,x.hrv?.beatCount),devField(16,x.hrv?['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'].indexOf(x.hrv.status):null),devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
+  [devField(17,x.powerMeterPower),devField(18,x.trainerPower),devField(13,x.hrv?.alpha1),devField(14,x.hrv?.artifactCount),devField(15,x.hrv?.beatCount),devField(16,x.hrv?['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'].indexOf(x.hrv.status):null),devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
  laps.forEach((w,i)=>{
   const stop=Math.min(end,w.endAt??end),st=s.stages[w.index],sampleTime=st.lactate!=null||st.rpe!=null?R.readSampleTime(s,w.index,end):null;
   messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6]],

@@ -32,8 +32,13 @@ test('fresh dedicated sensors take priority; stale or disconnected data becomes 
  const d=loadDevices();for(const kind of ['power','heart','trainer'])d.slots[kind].status='connected';
  d.slots.power.values.power={value:230,at:1000};d.slots.heart.values.hr={value:150,at:1000};d.slots.trainer.values={power:{value:220,at:5000},hr:{value:145,at:5000}};
  assert.equal(d.readSnapshot(5000).power,230);assert.equal(d.readSnapshot(5000).hr,150);
+ assert.equal(d.readSnapshot(5000).powerMeterPower,230);assert.equal(d.readSnapshot(5000).trainerPower,220);assert.equal(d.readSnapshot(5000).powerSource,'power');
  assert.equal(d.readSnapshot(6001).power,220);assert.equal(d.readSnapshot(6001).powerSource,'trainer');
+ assert.equal(d.readSnapshot(6001).powerMeterPower,null);assert.equal(d.readSnapshot(6001).trainerPower,220);
  assert.equal(d.readSnapshot(10001).hr,null);d.slots.trainer.status='disconnected';assert.equal(d.readSnapshot(6001).power,null);
+ assert.equal(d.readSnapshot(6001).trainerPower,null);
+ d.slots.power.values.power={value:0,at:6001};assert.equal(d.readSnapshot(6001).power,0);assert.equal(d.readSnapshot(6001).powerMeterPower,0);assert.equal(d.readSnapshot(6001).powerSource,'power');
+ d.slots.power.status='disconnected';assert.equal(d.readSnapshot(6001).powerMeterPower,null);
 });
 test('connect, notification, malformed packet, disconnect and reconnect clean up listeners',async()=>{
  let requested;const characteristic=new EventTarget();characteristic.startNotifications=async()=>characteristic;

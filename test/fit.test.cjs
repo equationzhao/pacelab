@@ -6,7 +6,7 @@ const context=vm.createContext({window:{Lab:{}},TextEncoder});for(const name of 
 const {recording:R,fit:F}=context.window.Lab,t=Date.UTC(2026,9,22);
 function createSession(){
  const s={execution:{status:'running',stageIndex:0,phase:'effort'},stages:[{power:120,lactate:1.2,rpe:3.5,quality:'normal',recordedAt:new Date(t+500000).toISOString()},{power:140,lactate:null,rpe:0,quality:'suspect',sampleAt:t+200000}],restingSample:{lactate:.9,recordedAt:new Date(t-10000).toISOString()}};
- R.beginRecording(s,t);R.captureRecord(s,{power:118,hr:132,cadence:89,powerSource:'power',hrSource:'heart'},t);
+ R.beginRecording(s,t);R.captureRecord(s,{power:118,powerMeterPower:118,trainerPower:115,hr:132,cadence:89,powerSource:'power',hrSource:'heart'},t);
  R.stopRecording(s,t+60000);R.beginRecording(s,t+90000);
  s.execution.phase='sampling';R.syncStage(s,t+150000);s.execution.stageIndex=1;s.execution.phase='effort';R.syncStage(s,t+195000);
  R.captureRecord(s,{power:139,hr:null},t+200000);R.stopRecording(s,t+315000,true);return s;
@@ -33,6 +33,22 @@ test('FIT header, CRC, standard sensor fields, laps and timer events are complet
  assert.equal(records[0].fields[7],118);assert.equal(records[0].fields[3],132);assert.equal(records[0].dev[3],120);assert.equal(laps.length,2);assert.equal(session.fields[8],285000);assert.equal(session.fields[7],315000);
  assert.equal(messages.filter(x=>x.global===21).length,4);assert.ok(Math.abs(session.dev[8]-.9)<1e-6);
 });
+test('FIT preserves both power streams, fallback and zero while missing and legacy values stay invalid',()=>{
+ const s=createSession();s.recording.records=[];
+ const snapshots=[
+  {power:230,powerSource:'power',powerMeterPower:230,trainerPower:220},
+  {power:221,powerSource:'trainer',powerMeterPower:null,trainerPower:221},
+  {power:0,powerSource:'power',powerMeterPower:0,trainerPower:null},
+  {power:null,powerMeterPower:null,trainerPower:null},
+  {power:200,powerSource:'power'}
+ ];
+ snapshots.forEach((x,i)=>s.recording.records.push({timestamp:t+i*1000,stage:0,phase:'effort',...x}));
+ const records=decodeBytes(F.encodeSession(s)).filter(x=>x.global===20);
+ assert.deepEqual(records.slice(0,5).map(x=>[x.fields[7],x.dev[17],x.dev[18],x.dev[10]]),[
+  [230,230,220,1],[221,65535,221,3],[0,0,65535,1],[65535,65535,65535,255],[200,65535,65535,1]
+ ]);
+ assert.ok(records.slice(5).every(x=>x.dev[17]===65535&&x.dev[18]===65535));
+});
 test('late lactate edits update original stage, RPE zero is valid, missing sensors stay invalid',()=>{
  const s=createSession();s.stages[0].lactate=2.8;const messages=decodeBytes(F.encodeSession(s)),samples=messages.filter(x=>x.global===20&&Number.isFinite(x.dev[0]));
  assert.equal(samples.length,1);assert.ok(Math.abs(samples[0].dev[0]-2.8)<1e-6);assert.equal(samples[0].dev[5],F.fitTime(t+150000));assert.equal(samples[0].dev[6],F.fitTime(t+500000));
@@ -46,6 +62,8 @@ test('Garmin official SDK decodes activity and developer fields without errors',
  assert.equal(messages.sessionMesgs[0].sport,'cycling');assert.equal(messages.sessionMesgs[0].subSport,'indoorCycling');assert.equal(messages.sessionMesgs[0].totalTimerTime,285);
  assert.equal(messages.lapMesgs.length,2);assert.equal(messages.recordMesgs[0].power,118);assert.ok(Math.abs(messages.lapMesgs[0].developerFields[0]-1.2)<1e-6);assert.equal(messages.lapMesgs[1].developerFields[1],0);
  assert.equal(messages.fieldDescriptionMesgs.find(x=>x.fieldName==='lactate').units,'mmol/L');
+ assert.equal(messages.recordMesgs[0].developerFields[17],118);assert.equal(messages.recordMesgs[0].developerFields[18],115);
+ for(const fieldName of ['power_meter_power','trainer_power'])assert.equal(messages.fieldDescriptionMesgs.find(x=>x.fieldName===fieldName).units,'W');
 });
 test('Garmin SDK retains native RR arrays and valid or suppressed alpha developer fields',async tcase=>{
  if(!process.env.FIT_SDK_PATH)return tcase.skip('Set FIT_SDK_PATH');
