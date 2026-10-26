@@ -47,6 +47,40 @@ function captureDistance(r,snapshot,now){
  return {distance:source?state.total:null,distanceDelta:delta,distanceStartAt:source?startAt:null,distanceSource:source};
 }
 function measureTimer(r,start,end){return r.spans.reduce((sum,span)=>sum+Math.max(0,Math.min(end,span.endAt??end)-Math.max(start,span.startAt)),0)}
+function readSensorValue(key,value){
+ const bounds={hr:[1,254],cadence:[0,254],power:[0,65534]}[key];
+ return bounds&&Number.isFinite(value)&&value>=bounds[0]&&value<=bounds[1]?value:null;
+}
+function selectRecords(r,{stage=null,end=r?.endedAt??Infinity}={}){
+ if(!r)return [];
+ const window=stage===null?null:r.windows.find(w=>w.index===stage);
+ if(stage!==null&&!window)return [];
+ return r.records.filter(x=>x.timestamp>=r.startedAt&&x.timestamp<=end&&
+  (stage===null||x.stage===stage&&x.timestamp>=window.startAt&&x.timestamp<=(window.endAt??end))&&
+  r.spans.some(span=>x.timestamp>=span.startAt&&x.timestamp<=(span.endAt??end)));
+}
+function summarizeRecords(records){
+ const summary={};
+ for(const key of ['hr','cadence','power']){
+  let sum=0,count=0,max=null;
+  for(const record of records){const value=readSensorValue(key,record[key]);if(value===null)continue;sum+=value;count++;max=Math.max(max??value,value)}
+  summary[key]={avg:count?sum/count:null,max,count};
+ }
+ return summary;
+}
+function summarizeStage(s,index){return summarizeRecords(selectRecords(s.recording,{stage:index}))}
+function summarizeStages(s){
+ const groups=new Map(),windows=new Map((s.recording?.windows||[]).map(w=>[w.index,w]));
+ for(const x of selectRecords(s.recording)){
+  const w=windows.get(x.stage);if(!w||x.timestamp<w.startAt||x.timestamp>(w.endAt??Infinity))continue;
+  if(!groups.has(x.stage))groups.set(x.stage,[]);groups.get(x.stage).push(x);
+ }
+ return s.stages.map((_,index)=>summarizeRecords(groups.get(index)||[]));
+}
+function readStageHeartRate(s,index,summary=summarizeStage(s,index)){
+ const stats=summary.hr,manual=readSensorValue('hr',s.stages[index].hr);
+ return {...stats,value:stats.count?Math.round(stats.avg):manual,source:stats.count?'recorded':manual!==null?'manual':null,manual};
+}
 function readSampleTime(s,index,now=Date.now()){
  const st=s.stages[index],w=s.recording?.windows.find(w=>w.index===index);if(!w)return null;
  const end=w.endAt??now,time=Number(st.sampleAt)||Date.parse(st.recordedAt);
@@ -92,5 +126,5 @@ function readRecording(raw,stageCount){
  for(const span of r.spans)if(span.endAt===null)span.endAt=Math.max(span.startAt,end);
  return r;
 }
-Lab.recording={beginRecording,syncStage,stopRecording,captureRecord,measureTimer,readSampleTime,recoverRecording,readRecording};
+Lab.recording={beginRecording,syncStage,stopRecording,captureRecord,measureTimer,readSensorValue,selectRecords,summarizeRecords,summarizeStage,summarizeStages,readStageHeartRate,readSampleTime,recoverRecording,readRecording};
 })();

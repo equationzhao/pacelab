@@ -26,12 +26,13 @@ function createWriter(){
   for(const [,size,type,value] of fields.concat(dev)){
    if(type===STR){const bytes=new TextEncoder().encode(String(value??''));data.set(bytes.subarray(0,size-1),offset)}
    else if(Array.isArray(value)||value instanceof Uint8Array)data.set(value.slice(0,size),offset);
-   else if(type===S16)view.setInt16(offset,Number.isFinite(value)&&value>=-32768&&value<32767?Math.round(value):32767,true);
+   else if(type===S16)view.setInt16(offset,Number.isFinite(value)&&value>=-32768&&value<32767&&Math.round(value)<32767?Math.round(value):32767,true);
    else if(value===null||value===undefined||!Number.isFinite(value))data.fill(255,offset,offset+size);
-   else if(type===F32)view.setFloat32(offset,value,true);
-   else if(size===1)view.setUint8(offset,Math.max(0,Math.min(254,Math.round(value))));
-   else if(size===2)view.setUint16(offset,Math.max(0,Math.min(65534,Math.round(value))),true);
-   else view.setUint32(offset,Math.max(0,Math.min(0xfffffffe,Math.round(value))),true);
+   else if(type===F32){if(Number.isFinite(Math.fround(value)))view.setFloat32(offset,value,true);else data.fill(255,offset,offset+size)}
+   else if(value<0||Math.round(value)>({1:254,2:65534,4:0xfffffffe})[size])data.fill(255,offset,offset+size);
+   else if(size===1)view.setUint8(offset,Math.round(value));
+   else if(size===2)view.setUint16(offset,Math.round(value),true);
+   else view.setUint32(offset,Math.round(value),true);
    offset+=size;
   }
   chunks.push(data);
@@ -64,6 +65,11 @@ function encodeMotionSummary(records,r,start,end,isLap=false){
  return [[9,4,U32,distance===null?null:distance*100],[isLap?13:14,2,U16,encodeSpeed(avgSpeed)],[isLap?14:15,2,U16,encodeSpeed(maxSpeed)],
   [isLap?110:124,4,U32,avgSpeed===null?null:avgSpeed*1000],[isLap?111:125,4,U32,maxSpeed===null?null:maxSpeed*1000]];
 }
+function encodeSensorSummary(records,isLap=false){
+ const {hr,cadence,power}=R.summarizeRecords(records),base=isLap?15:16;
+ return [[base,1,U8,hr.avg],[base+1,1,U8,hr.max],[base+2,1,U8,cadence.avg],[base+3,1,U8,cadence.max],
+  [base+4,2,U16,power.avg],[base+5,2,U16,power.max]];
+}
 function resolveRecordedTarget(s,index,at){
  const stage=s.stages[index],window=s.recording.windows.find(w=>w.index===index);
  if(!window)return null;
@@ -79,7 +85,8 @@ function encodeSession(s,now=Date.now()){
  write(1,207,[[1,16,13,[0xb7,0xa4,0x2a,0xf1,0x3a,0x09,0x48,0x37,0x9a,0xb8,0x50,0x61,0x63,0x65,0x4c,0x62]],[3,1,U8,0],[4,4,U32,1]]);
  developerFields.forEach(([id,name,units,type])=>write(2,206,[[0,1,U8,0],[1,1,U8,id],[2,1,U8,type],[3,28,STR,name],[6,1,U8,1],[7,1,1,0],[8,12,STR,units]]));
  write(3,12,[[0,1,0,2],[1,1,0,6],[3,16,STR,'Indoor cycling']]);
- const messages=[],records=r.records.filter(x=>x.timestamp<=end).map(x=>({...x}));
+ const sensorRecords=R.selectRecords(r,{end});
+ const messages=[],records=sensorRecords.map(x=>({...x,hr:R.readSensorValue('hr',x.hr),cadence:R.readSensorValue('cadence',x.cadence),power:R.readSensorValue('power',x.power)}));
  const recordsBySecond=new Map(records.map(x=>[Math.floor(x.timestamp/1000),x]));
  for(const estimate of r.hrv?.estimates||[]){
   if(estimate.timestamp>end)continue;
@@ -113,12 +120,12 @@ function encodeSession(s,now=Date.now()){
   [devField(23,x.confirmedTargetPower),devField(19,x.trainerResistance),devField(20,x.trainerDistance),devField(21,({trainer:1,speed:2})[x.distanceSource]),devField(22,x.gradeSource==='trainerSimulation'?1:null),devField(17,x.powerMeterPower),devField(18,x.trainerPower),devField(13,x.hrv?.alpha1),devField(14,x.hrv?.artifactCount),devField(15,x.hrv?.beatCount),devField(16,x.hrv?['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'].indexOf(x.hrv.status):null),devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
  laps.forEach((w,i)=>{
   const stop=Math.min(end,w.endAt??end),st=s.stages[w.index],sampleTime=st.lactate!=null||st.rpe!=null?R.readSampleTime(s,w.index,end):null;
-  messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6],...encodeMotionSummary(records,r,w.startAt,stop,true)],
+  messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6],...encodeMotionSummary(records,r,w.startAt,stop,true),...encodeSensorSummary(R.selectRecords(r,{stage:w.index,end:stop}),true)],
    [devField(24,st.endPower),devField(0,st.lactate),devField(1,st.rpe),devField(2,w.index+1),devField(3,st.target?.kind==='ramp'?null:st.power),devField(5,sampleTime===null?null:fitTime(sampleTime)),devField(6,Number.isFinite(Date.parse(st.recordedAt))?fitTime(Date.parse(st.recordedAt)):null),devField(7,['normal','suspect','exclude'].indexOf(st.quality))])});
  });
  messages.sort((a,b)=>a.at-b.at||a.priority-b.priority).forEach(message=>message.run());
  const timer=R.measureTimer(r,start,end),rest=s.restingSample;
- write(7,18,[ts(end),[254,2,U16,0],[0,1,0,8],[1,1,0,1],[2,4,U32,fitTime(start)],[5,1,0,2],[6,1,0,6],[7,4,U32,end-start],[8,4,U32,timer],[25,2,U16,0],[26,2,U16,laps.length],...encodeMotionSummary(records,r,start,end)],
+ write(7,18,[ts(end),[254,2,U16,0],[0,1,0,8],[1,1,0,1],[2,4,U32,fitTime(start)],[5,1,0,2],[6,1,0,6],[7,4,U32,end-start],[8,4,U32,timer],[25,2,U16,0],[26,2,U16,laps.length],...encodeMotionSummary(records,r,start,end),...encodeSensorSummary(sensorRecords)],
   [devField(8,rest?.skipped?null:rest?.lactate),devField(9,Number.isFinite(Date.parse(rest?.recordedAt))?fitTime(Date.parse(rest.recordedAt)):null)]);
  write(8,34,[ts(end),[0,4,U32,timer],[1,2,U16,1],[2,1,0,0],[3,1,0,26],[4,1,0,1]]);
  return writer.finishFile();

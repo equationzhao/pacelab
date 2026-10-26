@@ -3,8 +3,29 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const context=vm.createContext({window:{Lab:{}}});vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/recording.js'),'utf8'),context);
 const R=context.window.Lab.recording,t=Date.UTC(2026,9,22);
-const exportContext=vm.createContext({window:{}});for(const name of ['storage','core','tests'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),exportContext);
-test('CSV exports raw readings, timestamps, athlete and resting data without computed fields',()=>{
+test('shared summaries exclude pauses and invalid readings, retain zeros and assign stage boundaries once',()=>{
+ const s={stages:[{hr:155},{hr:165},{hr:170}],recording:{startedAt:t,endedAt:t+5000,
+  spans:[{startAt:t,endAt:t+2000},{startAt:t+4000,endAt:t+5000}],
+  windows:[{index:0,startAt:t,endAt:t+1000},{index:1,startAt:t+1000,endAt:t+5000}],
+  records:[{timestamp:t,stage:0,hr:120,power:0,cadence:0},{timestamp:t+1000,stage:1,hr:160,power:200,cadence:90},
+   {timestamp:t+2000,stage:1,hr:null,power:null,cadence:null},{timestamp:t+3000,stage:1,hr:240,power:900,cadence:200},
+   {timestamp:t+4000,stage:1,hr:0,power:-1,cadence:255},{timestamp:t+5000,stage:1,hr:255,power:65535,cadence:NaN},
+   {timestamp:t+6000,stage:1,hr:250,power:500,cadence:100}]}};
+ const before=JSON.stringify(s),summary=R.summarizeRecords(R.selectRecords(s.recording));
+ assert.deepEqual(JSON.parse(JSON.stringify(summary)),{hr:{avg:140,max:160,count:2},cadence:{avg:45,max:90,count:2},power:{avg:100,max:200,count:2}});
+ const stages=R.summarizeStages(s);assert.equal(stages[0].hr.avg,120);assert.equal(stages[1].hr.avg,160);assert.equal(stages[2].hr.avg,null);
+ assert.equal(R.readStageHeartRate(s,0).value,120);assert.equal(R.readStageHeartRate(s,0).manual,155);assert.equal(R.readStageHeartRate(s,2).source,'manual');
+ assert.equal(JSON.stringify(s),before);
+});
+test('stage CSV shares recorded summaries while keeping the manual heart rate column independent',()=>{
+ const {core:C,tests:T,recording:RR}=exportContext.window.Lab,s=T.newSession({name:'HR',startPower:120,increment:15,stageMinutes:2,stageCount:3,samplingMode:'solo'});
+ s.execution.status='running';s.stages[0].hr=190;RR.beginRecording(s,t);RR.captureRecord(s,{hr:120},t);RR.captureRecord(s,{hr:140},t+1000);RR.stopRecording(s,t+2000,true);
+ const [header,row]=C.sessionCsv(s).replace(/^\ufeff/,'').split('\r\n').map(x=>x.split(',').map(v=>v.replace(/^"|"$/g,'')));
+ const fields=Object.fromEntries(header.map((key,i)=>[key,row[i]]));
+ assert.equal(fields.heart_rate_bpm,'190');assert.equal(fields.recorded_avg_heart_rate_bpm,'130');assert.equal(fields.recorded_max_heart_rate_bpm,'140');assert.equal(fields.recorded_heart_rate_count,'2');
+});
+const exportContext=vm.createContext({window:{}});for(const name of ['storage','core','tests','recording'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),exportContext);
+test('CSV preserves manual readings, timestamps, athlete and resting data',()=>{
  const {core:C,tests:T}=exportContext.window.Lab,s=T.newSession({name:'Raw export',startPower:120,increment:15,stageMinutes:2,stageCount:3,samplingMode:'solo',preset:'fine'});
  s.id='raw';s.athlete={name:'Rider',sex:'female',age:30,ftp:270};s.restingSample={lactate:1.1,recordedAt:'2026-10-22T00:00:00Z',skipped:false};
  Object.assign(s.stages[0],{lactate:2.4,hr:151,rpe:0,quality:'exclude',notes:'comma, "quote"',sampleAt:t,recordedAt:'2026-10-22T00:02:00Z'});

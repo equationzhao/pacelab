@@ -1,8 +1,19 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const context=vm.createContext({window:{}});for(const name of ['storage','core','charts'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),context);
+const context=vm.createContext({window:{}});for(const name of ['storage','core','recording','charts'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src',name+'.js'),'utf8'),context);
 const {renderScatter}=context.window.Lab.charts;
+test('heart rate timeline survives historical reloads and breaks at missing data, pauses and recording gaps',()=>{
+ const r={startedAt:0,endedAt:13000,windows:[],spans:[{startAt:0,endAt:5000},{startAt:6000,endAt:13000}],records:[
+  {timestamp:0,hr:120},{timestamp:1000,hr:130},{timestamp:2000,hr:null},{timestamp:3000,hr:140},{timestamp:4000,hr:150},
+  {timestamp:6000,hr:160},{timestamp:7000,hr:170},{timestamp:12000,hr:180},{timestamp:13000,hr:181}]};
+ const svg=context.window.Lab.charts.renderHeartRate(r);
+ assert.equal((svg.match(/<polyline /g)||[]).length,4);assert.doesNotMatch(svg,/NaN|Infinity/);assert.match(svg,/已记录心率随时间变化/);
+ assert.equal(context.window.Lab.charts.renderHeartRate(JSON.parse(JSON.stringify(r))),svg);
+ assert.match(context.window.Lab.charts.renderHeartRate(null),/暂无已记录心率/);
+ assert.match(context.window.Lab.charts.renderHeartRate({...r,records:[{timestamp:0,hr:120}]}),/<circle /);
+ assert.match(context.window.Lab.charts.renderHeartRate({...r,records:[{timestamp:0,hr:0},{timestamp:1,hr:255}]}),/暂无已记录心率/);
+});
 test('plots only original readings, including flagged samples, without paths or reference markers',()=>{
  const stages=[{power:100,lactate:1,quality:'normal'},{power:125,lactate:2,quality:'suspect'},{power:150,lactate:5,quality:'exclude'},{power:175,lactate:null},{power:200,lactate:''}];
  const original=JSON.stringify(stages),svg=renderScatter(stages);

@@ -83,6 +83,26 @@ function createMotionSession(){
  s.execution.stageIndex=1;R.syncStage(s,t+1500);take(2,{speed:100,trainerDistance:1020,grade:0,gradeSource:'trainerSimulation'});
  R.stopRecording(s,t+2000);R.beginRecording(s,t+5000);take(5,{speed:0,trainerDistance:5000});take(6,{speed:10,trainerDistance:5010});take(7,{});R.stopRecording(s,t+7000,true);return s;
 }
+test('official FIT sensor summaries agree with records, preserve zero and omit missing or out-of-range values',async tcase=>{
+ if(!process.env.FIT_SDK_PATH)return tcase.skip('Set FIT_SDK_PATH');
+ const {Decoder,Stream}=await import(pathToFileURL(process.env.FIT_SDK_PATH).href);
+ const s={execution:{status:'running',stageIndex:0,phase:'effort'},stages:[{power:120,hr:199},{power:140,hr:188}]};
+ R.beginRecording(s,t);R.captureRecord(s,{hr:120,power:0,cadence:0},t);R.captureRecord(s,{hr:140,power:200,cadence:80},t+1000);
+ R.stopRecording(s,t+2000);R.beginRecording(s,t+3000);s.execution.stageIndex=1;R.syncStage(s,t+3000);
+ R.captureRecord(s,{hr:160,power:300,cadence:100},t+3000);R.captureRecord(s,{hr:0,power:-1,cadence:255,powerMeterPower:70000},t+4000);
+ R.captureRecord(s,{hr:255,power:65535,cadence:NaN},t+5000);R.stopRecording(s,t+6000,true);
+ // Corrupt paused/future samples must not leak into the exported activity or its summaries.
+ s.recording.records.splice(2,0,{timestamp:t+2500,stage:0,hr:250,power:1000,cadence:200});
+ s.recording.records.push({timestamp:t+7000,stage:1,hr:250,power:1000,cadence:200});
+ const decode=()=>{const decoder=new Decoder(Stream.fromByteArray(F.encodeSession(s)));assert.equal(decoder.checkIntegrity(),true);const result=decoder.read();assert.deepEqual(result.errors,[]);return result.messages};
+ const m=decode(),session=m.sessionMesgs[0];
+ assert.equal(m.recordMesgs.length,5);assert.equal(session.avgHeartRate,140);assert.equal(session.maxHeartRate,160);
+ assert.equal(session.avgPower,167);assert.equal(session.maxPower,300);assert.equal(session.avgCadence,60);assert.equal(session.maxCadence,100);
+ assert.deepEqual(m.lapMesgs.map(x=>[x.avgHeartRate,x.maxHeartRate,x.avgPower,x.maxPower,x.avgCadence,x.maxCadence]),[[130,140,100,200,40,80],[160,160,300,300,100,100]]);
+ assert.equal(m.recordMesgs[3].heartRate,undefined);assert.equal(m.recordMesgs[3].power,undefined);assert.equal(m.recordMesgs[3].cadence,undefined);assert.equal(m.recordMesgs[3].developerFields[17],undefined);
+ assert.equal(m.recordMesgs[4].heartRate,undefined);assert.equal(m.recordMesgs[4].power,undefined);
+ s.recording.records=s.recording.records.filter(x=>x.stage===0);const missing=decode();assert.equal(missing.lapMesgs[1].avgHeartRate,undefined);assert.equal(missing.lapMesgs[1].maxPower,undefined);
+});
 test('FIT native motion uses exact scales, signed invalid sentinel and enhanced speeds without clipping',()=>{
  const bytes=F.encodeSession(createMotionSession()),messages=decodeBytes(bytes),records=messages.filter(x=>x.global===20),laps=messages.filter(x=>x.global===19),session=messages.find(x=>x.global===18);
  assert.equal(F.computeCrc(bytes),0);assert.deepEqual(records.map(x=>x.fields[5]),[0,1000,2000,2000,3000,0xffffffff]);

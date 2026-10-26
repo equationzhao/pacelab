@@ -5,7 +5,7 @@ const metrics={lactate:{label:'乳酸',unit:'mmol/L'},hr:{label:'心率',unit:'b
 const qualities={normal:{label:'正常',color:'#178a72'},suspect:{label:'可疑',color:'#dc9053'},exclude:{label:'标记排除',color:'#94a2a7'}};
 function renderScatter(stages,metric='lactate',byStage=false){
  const definition=metrics[metric];if(!definition)return '';
- // Plot each stored reading, including marked samples. No interpolation or aggregation.
+ // Plot supplied readings, including marked samples, without interpolation.
  const points=stages.map((stage,index)=>({x:byStage?index+1:n(stage.power),y:n(stage[metric]),index,quality:qualities[stage.quality]||qualities.normal})).filter(point=>point.x!==null&&point.y!==null);
  if(!points.length)return `<div class="empty" style="padding:35px 10px"><div class="empty-illustration" style="width:54px;height:54px;border-radius:15px">${Lab.core.icon('chart')}</div><h3 style="font-size:15px">暂无${definition.label}记录</h3></div>`;
  const W=480,H=280,left=58,right=19,top=20,bottom=48;
@@ -21,10 +21,33 @@ function renderScatter(stages,metric='lactate',byStage=false){
   grid.push(`<line x1="${x}" x2="${x}" y1="${top}" y2="${H-bottom}" stroke="#f2f4f2"/><text x="${x}" y="${H-bottom+22}" text-anchor="middle" font-size="12" fill="#84959b">${Math.round(minX+(maxX-minX)*i/4)}</text>`);
  }
  const dots=points.map(point=>{
-  const label=`第 ${point.index+1} 级 · ${byStage?stages[point.index].label||'分段':point.x+' W'} · ${definition.label} ${point.y} ${definition.unit} · ${point.quality.label}`;
+  const source=metric==='hr'?stages[point.index].hrSource:null;
+  const label=`第 ${point.index+1} 级 · ${byStage?stages[point.index].label||'分段':point.x+' W'} · ${definition.label} ${point.y} ${definition.unit}${source==='recorded'?' · 分段平均':source==='manual'?' · 手填':''} · ${point.quality.label}`;
   return `<circle data-stage="${point.index}" cx="${mapX(point.x)}" cy="${mapY(point.y)}" r="5" fill="white" stroke="${point.quality.color}" stroke-width="2.5" tabindex="0" aria-label="${esc(label)}"><title>${esc(label)}</title></circle>`;
  }).join('');
- return `<svg role="img" aria-label="${definition.label}与${byStage?'分段顺序':'阶段目标功率'}原始数据散点图" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${grid.join('')}${dots}<text x="${(left+W-right)/2}" y="${H-7}" text-anchor="middle" font-size="12" fill="#72868d">${byStage?'分段顺序':'阶段目标功率 / W'}</text><text x="15" y="${H/2}" text-anchor="middle" transform="rotate(-90 15 ${H/2})" font-size="12" fill="#72868d">${definition.label} / ${definition.unit}</text></svg>`;
+ return `<svg role="img" aria-label="${definition.label}与${byStage?'分段顺序':'阶段目标功率'}${metric==='hr'?'分段心率':'原始数据'}散点图" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${grid.join('')}${dots}<text x="${(left+W-right)/2}" y="${H-7}" text-anchor="middle" font-size="12" fill="#72868d">${byStage?'分段顺序':'阶段目标功率 / W'}</text><text x="15" y="${H/2}" text-anchor="middle" transform="rotate(-90 15 ${H/2})" font-size="12" fill="#72868d">${definition.label} / ${definition.unit}</text></svg>`;
+}
+function renderHeartRate(recording,compact=false){
+ const R=Lab.recording,records=R.selectRecords(recording),valid=records.filter(x=>R.readSensorValue('hr',x.hr)!==null);
+ if(!valid.length)return '<div class="empty"><p>暂无已记录心率</p></div>';
+ const W=compact?340:720,H=240,left=48,right=16,top=20,bottom=40;
+ const start=recording.startedAt,end=recording.endedAt??records.at(-1).timestamp,duration=Math.max(1000,end-start);
+ let min=254,max=1;for(const x of valid){min=Math.min(min,x.hr);max=Math.max(max,x.hr)}
+ const minY=Math.max(0,Math.floor((min-5)/10)*10),maxY=Math.ceil((max+5)/10)*10;
+ const mapX=t=>round(left+(t-start)/duration*(W-left-right),2),mapY=v=>round(top+(maxY-v)/(maxY-minY)*(H-top-bottom),2),grid=[];
+ for(let i=0;i<=4;i++){
+  const y=top+(H-top-bottom)*i/4,x=left+(W-left-right)*i/4;
+  grid.push(`<line x1="${left}" x2="${W-right}" y1="${y}" y2="${y}" stroke="#e8eeeb"/><text x="${left-9}" y="${y+4}" text-anchor="end" font-size="12" fill="#84959b">${round(maxY-(maxY-minY)*i/4)}</text><text x="${x}" y="${H-17}" text-anchor="middle" font-size="12" fill="#84959b">${round(duration*i/4/60000,1)}</text>`);
+ }
+ const segments=[];let segment=[],previous=null,previousSpan=null;
+ for(const x of records){
+  const span=recording.spans.find(s=>x.timestamp>=s.startAt&&x.timestamp<=(s.endAt??end));
+  if(R.readSensorValue('hr',x.hr)===null){previous=null;segment=[];continue}
+  if(!previous||x.timestamp-previous.timestamp>2500||span!==previousSpan){segment=[];segments.push(segment)}
+  segment.push(x);previous=x;previousSpan=span;
+ }
+ const lines=segments.map(points=>points.length===1?`<circle cx="${mapX(points[0].timestamp)}" cy="${mapY(points[0].hr)}" r="2" fill="#c45d66"><title>${points[0].hr} bpm</title></circle>`:`<polyline points="${points.map(x=>`${mapX(x.timestamp)},${mapY(x.hr)}`).join(' ')}" fill="none" stroke="#c45d66" stroke-width="1.8" stroke-linejoin="round"/>`).join('');
+ return `<svg role="img" aria-label="已记录心率随时间变化" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${lines}<text x="${left}" y="12" font-size="11" fill="#84959b">bpm</text><text x="${W-right}" y="${H-1}" text-anchor="end" font-size="11" fill="#84959b">经过时间 min（含暂停）</text></svg>`;
 }
 function renderHrv(estimates,startedAt,compact=false){
  const points=estimates.filter(x=>x.status==='valid'&&Number.isFinite(x.alpha1));
@@ -41,5 +64,5 @@ function renderHrv(estimates,startedAt,compact=false){
  const dots=points.map(p=>`<circle cx="${mapX(p.timestamp)}" cy="${mapY(p.alpha1)}" r="3" fill="#178a72"><title>${esc(`${round((p.timestamp-startedAt)/60000,2)} min · 第 ${p.stage+1} 级 · ${p.phase==='sampling'?'采样间隔':'运动'} · DFA α1 ${p.alpha1.toFixed(3)} · ${p.beatCount} 搏`)}</title></circle>`).join('');
  return `<svg role="img" aria-label="DFA α1 随时间变化" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${dots}<text x="${W-right}" y="${H-1}" text-anchor="end" font-size="11" fill="#84959b">经过时间 min（含暂停）</text></svg>`;
 }
-Lab.charts={renderScatter,renderHrv};
+Lab.charts={renderScatter,renderHeartRate,renderHrv};
 })();

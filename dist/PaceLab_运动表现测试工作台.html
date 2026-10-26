@@ -39,6 +39,9 @@
 
 .mode-options{display:flex;gap:10px;margin-bottom:20px}.workflow-modal{width:min(1120px,100%);max-height:94dvh}.workflow-help{font-size:12px;color:#657780;line-height:1.8;margin:10px 0 16px}.workflow-text{font-family:ui-monospace,monospace;font-size:14px;line-height:1.9;resize:vertical}.workflow-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0;font-size:12px;color:#53656c}.workflow-toolbar input[type=number]{width:64px;padding:8px;border:1px solid #dfe7e4;border-radius:8px}.workflow-profile svg{width:100%;max-height:210px}.workflow-table .field{width:105px}.workflow-table .workflow-target{width:170px}.workflow-table small{display:block;margin-top:5px;color:#657780}.workflow-table input[type=checkbox]{width:18px;height:18px;accent-color:#2a966b}.workflow-sampling{color:#d3eeaf;font-size:13px;line-height:1.8;margin-top:12px}.workflow-pending{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-size:12px}.workflow-stage-description{color:#bad2c7;font-size:12px;margin:8px 0}.workflow-profile-card{margin-bottom:20px}.btn:disabled{opacity:.5;cursor:not-allowed}@media(max-width:640px){.workflow-modal .modal-body{padding:0 16px 20px}.workflow-text{font-size:12px}.mode-options .btn{flex:1}.workflow-toolbar{gap:8px}.workflow-modal .protocol-totals strong{font-size:21px}}
 
+.stage-hr-source{display:block;color:#72868d;font-size:11px;white-space:nowrap}
+#heart-rate-summary{color:#72868d;font-size:13px}
+
 </style>
 </head>
 <body>
@@ -157,7 +160,7 @@ Lab.storage={STORAGE_KEY,readDatabase,writeDatabase,checkForConflict,readStatus,
   const write=(v)=>Lab.storage.writeDatabase(v);
   const download=(content,name,mime)=>{const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)};
   const csvCell=(x)=>{const v=String(x??'');const safe=/^[=+@\-\t\r]/.test(v)?"'"+v:v;return `"${safe.replace(/"/g,'""')}"`};
-  const sessionCsv=(s)=>{const extra=s.type==='custom-workflow';const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','sample_time_ms','note','athlete_name','athlete_sex','athlete_age','ftp_w','protocol_preset','resting_lactate_mmol_l','resting_sample_recorded_at','resting_sample_skipped',...(extra?['stage_name','target_kind','target_unit','target_start','target_end','end_power_w','sample_window_sec','sample_lead_sec','skipped']:[])];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.sampleAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',Lab.tests?.readGoalId(s.protocol.preset)||s.protocol.preset||'',s.restingSample?.lactate??'',s.restingSample?.recordedAt??'',s.restingSample?.skipped??'',...(extra?[st.label,st.target.kind,st.target.unit,st.target.start,st.target.end,st.endPower,st.sampling?.windowSec??'',st.sampling?.leadSec??'',st.skipped??false]:[])]);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
+  const sessionCsv=(s)=>{const extra=s.type==='custom-workflow',summaries=Lab.recording?.summarizeStages(s);const heads=['test_id','test_type','name','date','stage','power_w','duration_sec','lactate_mmol_l','heart_rate_bpm','rpe_0_10','sample_quality','entry_recorded_at','sample_time_ms','note','athlete_name','athlete_sex','athlete_age','ftp_w','protocol_preset','resting_lactate_mmol_l','resting_sample_recorded_at','resting_sample_skipped','recorded_avg_heart_rate_bpm','recorded_max_heart_rate_bpm','recorded_heart_rate_count',...(extra?['stage_name','target_kind','target_unit','target_start','target_end','end_power_w','sample_window_sec','sample_lead_sec','skipped']:[])];const rows=s.stages.map((st,i)=>[s.id,s.type,s.name,s.createdAt,i+1,st.power,st.durationSec,st.lactate??'',st.hr??'',st.rpe??'',st.quality??'',st.recordedAt??'',st.sampleAt??'',st.notes??'',s.athlete?.name??'',s.athlete?.sex??'',s.athlete?.age??'',s.athlete?.ftp??'',Lab.tests?.readGoalId(s.protocol.preset)||s.protocol.preset||'',s.restingSample?.lactate??'',s.restingSample?.recordedAt??'',s.restingSample?.skipped??'',...(()=>{const hr=summaries?.[i].hr;return [hr?.avg==null?'':Math.round(hr.avg),hr?.max==null?'':Math.round(hr.max),hr?.count??0]})(),...(extra?[st.label,st.target.kind,st.target.unit,st.target.start,st.target.end,st.endPower,st.sampling?.windowSec??'',st.sampling?.leadSec??'',st.skipped??false]:[])]);return '\ufeff'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')};
   Lab.core={esc,attr,n,fmt,dateText,uid,clamp,round,icon,emptyState,read,write,download,sessionCsv,STORAGE_KEY};
 })();
 
@@ -433,7 +436,7 @@ const metrics={lactate:{label:'乳酸',unit:'mmol/L'},hr:{label:'心率',unit:'b
 const qualities={normal:{label:'正常',color:'#178a72'},suspect:{label:'可疑',color:'#dc9053'},exclude:{label:'标记排除',color:'#94a2a7'}};
 function renderScatter(stages,metric='lactate',byStage=false){
  const definition=metrics[metric];if(!definition)return '';
- // Plot each stored reading, including marked samples. No interpolation or aggregation.
+ // Plot supplied readings, including marked samples, without interpolation.
  const points=stages.map((stage,index)=>({x:byStage?index+1:n(stage.power),y:n(stage[metric]),index,quality:qualities[stage.quality]||qualities.normal})).filter(point=>point.x!==null&&point.y!==null);
  if(!points.length)return `<div class="empty" style="padding:35px 10px"><div class="empty-illustration" style="width:54px;height:54px;border-radius:15px">${Lab.core.icon('chart')}</div><h3 style="font-size:15px">暂无${definition.label}记录</h3></div>`;
  const W=480,H=280,left=58,right=19,top=20,bottom=48;
@@ -449,10 +452,33 @@ function renderScatter(stages,metric='lactate',byStage=false){
   grid.push(`<line x1="${x}" x2="${x}" y1="${top}" y2="${H-bottom}" stroke="#f2f4f2"/><text x="${x}" y="${H-bottom+22}" text-anchor="middle" font-size="12" fill="#84959b">${Math.round(minX+(maxX-minX)*i/4)}</text>`);
  }
  const dots=points.map(point=>{
-  const label=`第 ${point.index+1} 级 · ${byStage?stages[point.index].label||'分段':point.x+' W'} · ${definition.label} ${point.y} ${definition.unit} · ${point.quality.label}`;
+  const source=metric==='hr'?stages[point.index].hrSource:null;
+  const label=`第 ${point.index+1} 级 · ${byStage?stages[point.index].label||'分段':point.x+' W'} · ${definition.label} ${point.y} ${definition.unit}${source==='recorded'?' · 分段平均':source==='manual'?' · 手填':''} · ${point.quality.label}`;
   return `<circle data-stage="${point.index}" cx="${mapX(point.x)}" cy="${mapY(point.y)}" r="5" fill="white" stroke="${point.quality.color}" stroke-width="2.5" tabindex="0" aria-label="${esc(label)}"><title>${esc(label)}</title></circle>`;
  }).join('');
- return `<svg role="img" aria-label="${definition.label}与${byStage?'分段顺序':'阶段目标功率'}原始数据散点图" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${grid.join('')}${dots}<text x="${(left+W-right)/2}" y="${H-7}" text-anchor="middle" font-size="12" fill="#72868d">${byStage?'分段顺序':'阶段目标功率 / W'}</text><text x="15" y="${H/2}" text-anchor="middle" transform="rotate(-90 15 ${H/2})" font-size="12" fill="#72868d">${definition.label} / ${definition.unit}</text></svg>`;
+ return `<svg role="img" aria-label="${definition.label}与${byStage?'分段顺序':'阶段目标功率'}${metric==='hr'?'分段心率':'原始数据'}散点图" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${grid.join('')}${dots}<text x="${(left+W-right)/2}" y="${H-7}" text-anchor="middle" font-size="12" fill="#72868d">${byStage?'分段顺序':'阶段目标功率 / W'}</text><text x="15" y="${H/2}" text-anchor="middle" transform="rotate(-90 15 ${H/2})" font-size="12" fill="#72868d">${definition.label} / ${definition.unit}</text></svg>`;
+}
+function renderHeartRate(recording,compact=false){
+ const R=Lab.recording,records=R.selectRecords(recording),valid=records.filter(x=>R.readSensorValue('hr',x.hr)!==null);
+ if(!valid.length)return '<div class="empty"><p>暂无已记录心率</p></div>';
+ const W=compact?340:720,H=240,left=48,right=16,top=20,bottom=40;
+ const start=recording.startedAt,end=recording.endedAt??records.at(-1).timestamp,duration=Math.max(1000,end-start);
+ let min=254,max=1;for(const x of valid){min=Math.min(min,x.hr);max=Math.max(max,x.hr)}
+ const minY=Math.max(0,Math.floor((min-5)/10)*10),maxY=Math.ceil((max+5)/10)*10;
+ const mapX=t=>round(left+(t-start)/duration*(W-left-right),2),mapY=v=>round(top+(maxY-v)/(maxY-minY)*(H-top-bottom),2),grid=[];
+ for(let i=0;i<=4;i++){
+  const y=top+(H-top-bottom)*i/4,x=left+(W-left-right)*i/4;
+  grid.push(`<line x1="${left}" x2="${W-right}" y1="${y}" y2="${y}" stroke="#e8eeeb"/><text x="${left-9}" y="${y+4}" text-anchor="end" font-size="12" fill="#84959b">${round(maxY-(maxY-minY)*i/4)}</text><text x="${x}" y="${H-17}" text-anchor="middle" font-size="12" fill="#84959b">${round(duration*i/4/60000,1)}</text>`);
+ }
+ const segments=[];let segment=[],previous=null,previousSpan=null;
+ for(const x of records){
+  const span=recording.spans.find(s=>x.timestamp>=s.startAt&&x.timestamp<=(s.endAt??end));
+  if(R.readSensorValue('hr',x.hr)===null){previous=null;segment=[];continue}
+  if(!previous||x.timestamp-previous.timestamp>2500||span!==previousSpan){segment=[];segments.push(segment)}
+  segment.push(x);previous=x;previousSpan=span;
+ }
+ const lines=segments.map(points=>points.length===1?`<circle cx="${mapX(points[0].timestamp)}" cy="${mapY(points[0].hr)}" r="2" fill="#c45d66"><title>${points[0].hr} bpm</title></circle>`:`<polyline points="${points.map(x=>`${mapX(x.timestamp)},${mapY(x.hr)}`).join(' ')}" fill="none" stroke="#c45d66" stroke-width="1.8" stroke-linejoin="round"/>`).join('');
+ return `<svg role="img" aria-label="已记录心率随时间变化" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${lines}<text x="${left}" y="12" font-size="11" fill="#84959b">bpm</text><text x="${W-right}" y="${H-1}" text-anchor="end" font-size="11" fill="#84959b">经过时间 min（含暂停）</text></svg>`;
 }
 function renderHrv(estimates,startedAt,compact=false){
  const points=estimates.filter(x=>x.status==='valid'&&Number.isFinite(x.alpha1));
@@ -469,7 +495,7 @@ function renderHrv(estimates,startedAt,compact=false){
  const dots=points.map(p=>`<circle cx="${mapX(p.timestamp)}" cy="${mapY(p.alpha1)}" r="3" fill="#178a72"><title>${esc(`${round((p.timestamp-startedAt)/60000,2)} min · 第 ${p.stage+1} 级 · ${p.phase==='sampling'?'采样间隔':'运动'} · DFA α1 ${p.alpha1.toFixed(3)} · ${p.beatCount} 搏`)}</title></circle>`).join('');
  return `<svg role="img" aria-label="DFA α1 随时间变化" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${dots}<text x="${W-right}" y="${H-1}" text-anchor="end" font-size="11" fill="#84959b">经过时间 min（含暂停）</text></svg>`;
 }
-Lab.charts={renderScatter,renderHrv};
+Lab.charts={renderScatter,renderHeartRate,renderHrv};
 })();
 
 </script>
@@ -904,6 +930,40 @@ function captureDistance(r,snapshot,now){
  return {distance:source?state.total:null,distanceDelta:delta,distanceStartAt:source?startAt:null,distanceSource:source};
 }
 function measureTimer(r,start,end){return r.spans.reduce((sum,span)=>sum+Math.max(0,Math.min(end,span.endAt??end)-Math.max(start,span.startAt)),0)}
+function readSensorValue(key,value){
+ const bounds={hr:[1,254],cadence:[0,254],power:[0,65534]}[key];
+ return bounds&&Number.isFinite(value)&&value>=bounds[0]&&value<=bounds[1]?value:null;
+}
+function selectRecords(r,{stage=null,end=r?.endedAt??Infinity}={}){
+ if(!r)return [];
+ const window=stage===null?null:r.windows.find(w=>w.index===stage);
+ if(stage!==null&&!window)return [];
+ return r.records.filter(x=>x.timestamp>=r.startedAt&&x.timestamp<=end&&
+  (stage===null||x.stage===stage&&x.timestamp>=window.startAt&&x.timestamp<=(window.endAt??end))&&
+  r.spans.some(span=>x.timestamp>=span.startAt&&x.timestamp<=(span.endAt??end)));
+}
+function summarizeRecords(records){
+ const summary={};
+ for(const key of ['hr','cadence','power']){
+  let sum=0,count=0,max=null;
+  for(const record of records){const value=readSensorValue(key,record[key]);if(value===null)continue;sum+=value;count++;max=Math.max(max??value,value)}
+  summary[key]={avg:count?sum/count:null,max,count};
+ }
+ return summary;
+}
+function summarizeStage(s,index){return summarizeRecords(selectRecords(s.recording,{stage:index}))}
+function summarizeStages(s){
+ const groups=new Map(),windows=new Map((s.recording?.windows||[]).map(w=>[w.index,w]));
+ for(const x of selectRecords(s.recording)){
+  const w=windows.get(x.stage);if(!w||x.timestamp<w.startAt||x.timestamp>(w.endAt??Infinity))continue;
+  if(!groups.has(x.stage))groups.set(x.stage,[]);groups.get(x.stage).push(x);
+ }
+ return s.stages.map((_,index)=>summarizeRecords(groups.get(index)||[]));
+}
+function readStageHeartRate(s,index,summary=summarizeStage(s,index)){
+ const stats=summary.hr,manual=readSensorValue('hr',s.stages[index].hr);
+ return {...stats,value:stats.count?Math.round(stats.avg):manual,source:stats.count?'recorded':manual!==null?'manual':null,manual};
+}
 function readSampleTime(s,index,now=Date.now()){
  const st=s.stages[index],w=s.recording?.windows.find(w=>w.index===index);if(!w)return null;
  const end=w.endAt??now,time=Number(st.sampleAt)||Date.parse(st.recordedAt);
@@ -949,7 +1009,7 @@ function readRecording(raw,stageCount){
  for(const span of r.spans)if(span.endAt===null)span.endAt=Math.max(span.startAt,end);
  return r;
 }
-Lab.recording={beginRecording,syncStage,stopRecording,captureRecord,measureTimer,readSampleTime,recoverRecording,readRecording};
+Lab.recording={beginRecording,syncStage,stopRecording,captureRecord,measureTimer,readSensorValue,selectRecords,summarizeRecords,summarizeStage,summarizeStages,readStageHeartRate,readSampleTime,recoverRecording,readRecording};
 })();
 
 </script>
@@ -982,12 +1042,13 @@ function createWriter(){
   for(const [,size,type,value] of fields.concat(dev)){
    if(type===STR){const bytes=new TextEncoder().encode(String(value??''));data.set(bytes.subarray(0,size-1),offset)}
    else if(Array.isArray(value)||value instanceof Uint8Array)data.set(value.slice(0,size),offset);
-   else if(type===S16)view.setInt16(offset,Number.isFinite(value)&&value>=-32768&&value<32767?Math.round(value):32767,true);
+   else if(type===S16)view.setInt16(offset,Number.isFinite(value)&&value>=-32768&&value<32767&&Math.round(value)<32767?Math.round(value):32767,true);
    else if(value===null||value===undefined||!Number.isFinite(value))data.fill(255,offset,offset+size);
-   else if(type===F32)view.setFloat32(offset,value,true);
-   else if(size===1)view.setUint8(offset,Math.max(0,Math.min(254,Math.round(value))));
-   else if(size===2)view.setUint16(offset,Math.max(0,Math.min(65534,Math.round(value))),true);
-   else view.setUint32(offset,Math.max(0,Math.min(0xfffffffe,Math.round(value))),true);
+   else if(type===F32){if(Number.isFinite(Math.fround(value)))view.setFloat32(offset,value,true);else data.fill(255,offset,offset+size)}
+   else if(value<0||Math.round(value)>({1:254,2:65534,4:0xfffffffe})[size])data.fill(255,offset,offset+size);
+   else if(size===1)view.setUint8(offset,Math.round(value));
+   else if(size===2)view.setUint16(offset,Math.round(value),true);
+   else view.setUint32(offset,Math.round(value),true);
    offset+=size;
   }
   chunks.push(data);
@@ -1020,6 +1081,11 @@ function encodeMotionSummary(records,r,start,end,isLap=false){
  return [[9,4,U32,distance===null?null:distance*100],[isLap?13:14,2,U16,encodeSpeed(avgSpeed)],[isLap?14:15,2,U16,encodeSpeed(maxSpeed)],
   [isLap?110:124,4,U32,avgSpeed===null?null:avgSpeed*1000],[isLap?111:125,4,U32,maxSpeed===null?null:maxSpeed*1000]];
 }
+function encodeSensorSummary(records,isLap=false){
+ const {hr,cadence,power}=R.summarizeRecords(records),base=isLap?15:16;
+ return [[base,1,U8,hr.avg],[base+1,1,U8,hr.max],[base+2,1,U8,cadence.avg],[base+3,1,U8,cadence.max],
+  [base+4,2,U16,power.avg],[base+5,2,U16,power.max]];
+}
 function resolveRecordedTarget(s,index,at){
  const stage=s.stages[index],window=s.recording.windows.find(w=>w.index===index);
  if(!window)return null;
@@ -1035,7 +1101,8 @@ function encodeSession(s,now=Date.now()){
  write(1,207,[[1,16,13,[0xb7,0xa4,0x2a,0xf1,0x3a,0x09,0x48,0x37,0x9a,0xb8,0x50,0x61,0x63,0x65,0x4c,0x62]],[3,1,U8,0],[4,4,U32,1]]);
  developerFields.forEach(([id,name,units,type])=>write(2,206,[[0,1,U8,0],[1,1,U8,id],[2,1,U8,type],[3,28,STR,name],[6,1,U8,1],[7,1,1,0],[8,12,STR,units]]));
  write(3,12,[[0,1,0,2],[1,1,0,6],[3,16,STR,'Indoor cycling']]);
- const messages=[],records=r.records.filter(x=>x.timestamp<=end).map(x=>({...x}));
+ const sensorRecords=R.selectRecords(r,{end});
+ const messages=[],records=sensorRecords.map(x=>({...x,hr:R.readSensorValue('hr',x.hr),cadence:R.readSensorValue('cadence',x.cadence),power:R.readSensorValue('power',x.power)}));
  const recordsBySecond=new Map(records.map(x=>[Math.floor(x.timestamp/1000),x]));
  for(const estimate of r.hrv?.estimates||[]){
   if(estimate.timestamp>end)continue;
@@ -1069,12 +1136,12 @@ function encodeSession(s,now=Date.now()){
   [devField(23,x.confirmedTargetPower),devField(19,x.trainerResistance),devField(20,x.trainerDistance),devField(21,({trainer:1,speed:2})[x.distanceSource]),devField(22,x.gradeSource==='trainerSimulation'?1:null),devField(17,x.powerMeterPower),devField(18,x.trainerPower),devField(13,x.hrv?.alpha1),devField(14,x.hrv?.artifactCount),devField(15,x.hrv?.beatCount),devField(16,x.hrv?['waiting','collecting','valid','artifacts','flat','stale','no-rr','contact','disconnected'].indexOf(x.hrv.status):null),devField(0,x.sample?.lactate),devField(1,x.sample?.rpe),devField(2,x.stage+1),devField(3,x.targetPower),devField(4,x.phase==='sampling'?1:0),devField(5,x.sample?.time),devField(6,x.sample?.entered),devField(7,x.sample?.quality),...[['powerSource',10],['hrSource',11],['cadenceSource',12]].map(([key,id])=>devField(id,({power:1,heart:2,trainer:3})[x[key]]))])}));
  laps.forEach((w,i)=>{
   const stop=Math.min(end,w.endAt??end),st=s.stages[w.index],sampleTime=st.lactate!=null||st.rpe!=null?R.readSampleTime(s,w.index,end):null;
-  messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6],...encodeMotionSummary(records,r,w.startAt,stop,true)],
+  messages.push({at:stop,priority:2,run:()=>write(6,19,[ts(stop),[254,2,U16,i],[0,1,0,9],[1,1,0,1],[2,4,U32,fitTime(w.startAt)],[7,4,U32,stop-w.startAt],[8,4,U32,R.measureTimer(r,w.startAt,stop)],[25,1,0,2],[39,1,0,6],...encodeMotionSummary(records,r,w.startAt,stop,true),...encodeSensorSummary(R.selectRecords(r,{stage:w.index,end:stop}),true)],
    [devField(24,st.endPower),devField(0,st.lactate),devField(1,st.rpe),devField(2,w.index+1),devField(3,st.target?.kind==='ramp'?null:st.power),devField(5,sampleTime===null?null:fitTime(sampleTime)),devField(6,Number.isFinite(Date.parse(st.recordedAt))?fitTime(Date.parse(st.recordedAt)):null),devField(7,['normal','suspect','exclude'].indexOf(st.quality))])});
  });
  messages.sort((a,b)=>a.at-b.at||a.priority-b.priority).forEach(message=>message.run());
  const timer=R.measureTimer(r,start,end),rest=s.restingSample;
- write(7,18,[ts(end),[254,2,U16,0],[0,1,0,8],[1,1,0,1],[2,4,U32,fitTime(start)],[5,1,0,2],[6,1,0,6],[7,4,U32,end-start],[8,4,U32,timer],[25,2,U16,0],[26,2,U16,laps.length],...encodeMotionSummary(records,r,start,end)],
+ write(7,18,[ts(end),[254,2,U16,0],[0,1,0,8],[1,1,0,1],[2,4,U32,fitTime(start)],[5,1,0,2],[6,1,0,6],[7,4,U32,end-start],[8,4,U32,timer],[25,2,U16,0],[26,2,U16,laps.length],...encodeMotionSummary(records,r,start,end),...encodeSensorSummary(sensorRecords)],
   [devField(8,rest?.skipped?null:rest?.lactate),devField(9,Number.isFinite(Date.parse(rest?.recordedAt))?fitTime(Date.parse(rest.recordedAt)):null)]);
  write(8,34,[ts(end),[0,4,U32,timer],[1,2,U16,1],[2,1,0,0],[3,1,0,26],[4,1,0,1]]);
  return writer.finishFile();
@@ -1182,19 +1249,20 @@ function liveControls(s){const e=s.execution;
  return (e.status==='running'?btn('pause',icon('pause')+' 暂停','btn btn-primary'):btn('start',icon('play')+' 继续','btn btn-primary'))+btn('next',icon('arrow')+' 下一阶段','btn btn-dark')+btn('finish',icon('stop')+' 结束','btn btn-dark');
 }
 function fmtTime(ms){const secs=Math.ceil(Math.max(0,ms)/1000);const mm=Math.floor(secs/60),ss=secs%60;return `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
+function renderStageHeartRate(hr){return `${fmt(hr.value)}${hr.source?`<small class="stage-hr-source">${hr.source==='recorded'?'记录均值':'手填'}${hr.source==='recorded'&&hr.manual!==null?' · 手填 '+fmt(hr.manual):''}</small>`:''}`}
 function sessionRows(s){
- const e=s.execution;
+ const e=s.execution,summaries=R.summarizeStages(s);
  return s.stages.map((st,i)=>{
- const lac=C.n(st.lactate);
+ const lac=C.n(st.lactate),hr=R.readStageHeartRate(s,i,summaries[i]);
  return `<tr class="${i===e.stageIndex&&e.status!=='done'?'active-row':''}"><td><span class="table-index">${String(i+1).padStart(2,'0')}</span></td><td><strong>${esc(W.formatTarget(st))}</strong>${s.type==='custom-workflow'?`<div>${esc(describeStage(s,i))}${st.skipped?' · 已跳过':''}</div>`:''}</td><td>${W.formatDuration(st.durationSec)}</td>
- <td>${lac===null?'—':fmt(lac,1)}</td><td>${esc(st.hr??'—')}</td><td>${esc(st.rpe??'—')}</td>
+ <td>${lac===null?'—':fmt(lac,1)}</td><td data-stage-hr="${i}">${renderStageHeartRate(hr)}</td><td data-stage-max-hr="${i}">${fmt(hr.max)}</td><td>${esc(st.rpe??'—')}</td>
  <td>${st.quality==='exclude'?'排除':st.quality==='suspect'?'可疑':'正常'}</td><td>${esc(st.notes||'—')}</td>
  <td>${btn('edit-sample',lac===null||C.n(st.rpe)===null?'补录':'修改','btn btn-sm',`data-index="${i}" aria-label="录入第${i+1}级数据"`)}</td></tr>`;
  }).join('');
 }
 function recordTable(s){
  return `<div class="card card-pad section-space"><div class="details"><div><div class="card-title">阶段记录</div></div><div class="details-tools">${btn('export-csv',icon('download')+' CSV','btn btn-sm')}${btn('export-json',icon('file')+' JSON','btn btn-sm')}</div></div>
-  <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th><th>记录</th></tr></thead><tbody id="record-rows">${sessionRows(s)}</tbody></table></div>
+  <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>平均心率 bpm</th><th>最大心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th><th>记录</th></tr></thead><tbody id="record-rows">${sessionRows(s)}</tbody></table></div>
  </div>`;
 }
 function renderDevices(s){
@@ -1203,6 +1271,22 @@ function renderDevices(s){
 }
 function renderHrv(s){
  return `<div class="card card-pad section-space" id="hrv-card"><div class="details"><div class="card-title">HRV · DFA α1</div><div class="details-tools">${btn('export-hrv',icon('download')+' HRV CSV','btn btn-sm',s.recording?.hrv?.estimates.length?'':'disabled')}${btn('export-rr','RR CSV','btn btn-sm',s.recording?.hrv?.packets.length?'':'disabled')}</div></div><div class="hrv-reading"><strong id="hrv-alpha">—</strong><span id="hrv-status" role="status"></span></div><div class="chart-surface" id="hrv-chart"></div><p class="hrv-note">需要心率带提供 RR · 2 分钟窗口 · 每 5 秒更新</p></div>`;
+}
+function renderHeartRate(){
+ return `<div class="card card-pad section-space" id="heart-rate-card"><div class="details"><div class="card-title">心率记录</div><div id="heart-rate-summary"></div></div><div class="chart-surface" id="heart-rate-chart"></div><p class="hrv-note">按已记录的有效读数统计，包含采样间隔；暂停与缺失不计入均值，曲线中断处不补点。</p></div>`;
+}
+function paintHeartRate(s){
+ const chart=$('#heart-rate-chart');if(!s||!chart)return;
+ const r=s.recording,compact=chart.clientWidth<480,key=[s.id,r?.records.length,r?.endedAt,r?.spans.length,r?.spans.at(-1)?.endAt,compact].join('-');
+ if(chart.dataset.key===key)return;
+ const stats=R.summarizeRecords(R.selectRecords(r)).hr;
+ $('#heart-rate-summary').textContent=`平均 ${fmt(stats.avg)} · 最大 ${fmt(stats.max)} bpm · ${stats.count.toLocaleString()} 条`;
+ chart.innerHTML=Charts.renderHeartRate(r,compact);chart.dataset.key=key;
+ R.summarizeStages(s).forEach((summary,i)=>{
+  $(`[data-stage-hr="${i}"]`).innerHTML=renderStageHeartRate(R.readStageHeartRate(s,i,summary));
+  $(`[data-stage-max-hr="${i}"]`).textContent=fmt(summary.hr.max);
+ });
+ if(scatterMetric==='hr')$('#scatter-chart').innerHTML=renderScatterChart(s);
 }
 function paintHrv(s){
  if(!s||!$('#hrv-card'))return;
@@ -1224,7 +1308,7 @@ function paintDevices(){
   const button=$(`#device-${kind}-button`);button.textContent=slot.status==='connected'?'断开':slot.status==='connecting'?'连接中…':slot.name?'重新连接':'连接';button.disabled=slot.status==='connecting'||!!D.describeSupport();button.dataset.action=slot.status==='connected'?'disconnect-device':'connect-device';
  }
  const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
- const s=active(),r=s?.recording;paintHrv(s);
+ const s=active(),r=s?.recording;paintHrv(s);paintHeartRate(s);
  const distance=r?.records.findLast(x=>Number.isFinite(x.distance))?.distance??null;
  for(const [key,value,digits] of [['speed',values.speed===null?null:values.speed*3.6,1],['distance',distance===null?null:distance/1000,2],['grade',values.grade,2]])$(`#sensor-${key}`).textContent=value===null?'—':fmt(value,digits);
  $('#recording-note').textContent=r?`${s.execution.status==='running'?'记录中':s.execution.status==='done'?'记录完成':'记录暂停'} · ${r.records.length.toLocaleString()} 条`:'';
@@ -1265,14 +1349,19 @@ function captureActivity(now=Date.now()){
  paintDevices();
 }
 function pauseActive(){if(active()?.execution.status==='running')pause()}
+function renderScatterChart(s){
+ const summaries=scatterMetric==='hr'?R.summarizeStages(s):null;
+ const stages=scatterMetric==='hr'?s.stages.map((st,i)=>{const hr=R.readStageHeartRate(s,i,summaries[i]);return {...st,hr:hr.value,hrSource:hr.source}}):s.stages;
+ return Charts.renderScatter(stages,scatterMetric,s.type==='custom-workflow');
+}
 function renderScatter(s){
- return `<div class="card card-pad"><div class="card-heading"><div class="card-title">数据散点图</div><div class="scatter-controls" aria-label="散点图数据">${[['lactate','乳酸'],['hr','心率'],['rpe','RPE']].map(([metric,label])=>btn('scatter-metric',label,`btn btn-sm ${metric===scatterMetric?'btn-soft':''}`,`data-metric="${metric}" aria-pressed="${metric===scatterMetric}"`)).join('')}</div></div><div class="chart-surface" id="scatter-chart">${Charts.renderScatter(s.stages,scatterMetric,s.type==='custom-workflow')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>正常</span><span><i class="legend-dot" style="background:#dc9053"></i>可疑</span><span><i class="legend-dot" style="background:#94a2a7"></i>标记排除</span></div></div>`;
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">数据散点图</div><div class="scatter-controls" aria-label="散点图数据">${[['lactate','乳酸'],['hr','心率'],['rpe','RPE']].map(([metric,label])=>btn('scatter-metric',label,`btn btn-sm ${metric===scatterMetric?'btn-soft':''}`,`data-metric="${metric}" aria-pressed="${metric===scatterMetric}"`)).join('')}</div></div><div class="chart-surface" id="scatter-chart">${renderScatterChart(s)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>正常</span><span><i class="legend-dot" style="background:#dc9053"></i>可疑</span><span><i class="legend-dot" style="background:#94a2a7"></i>标记排除</span></div>${scatterMetric==='hr'?'<p class="hrv-note">优先显示分段平均心率；没有设备记录的分段显示手填值。</p>':''}</div>`;
 }
 function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+(s.type==='custom-workflow'?`<div class="card card-pad workflow-profile-card"><div class="card-title">计划功率 · ${W.formatDuration(s.stages.reduce((sum,x)=>sum+x.durationSec,0))}</div><div class="workflow-profile">${W.renderProfile(s.stages,0)}</div></div>`:'')+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHrv(s)+recordTable(s);
+ return head+(s.type==='custom-workflow'?`<div class="card card-pad workflow-profile-card"><div class="card-title">计划功率 · ${W.formatDuration(s.stages.reduce((sum,x)=>sum+x.durationSec,0))}</div><div class="workflow-profile">${W.renderProfile(s.stages,0)}</div></div>`:'')+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHeartRate()+renderHrv(s)+recordTable(s);
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
@@ -1624,7 +1713,7 @@ function handleInput(event){
 }
 function refreshDataDisplay(changed){
  const s=active();if(!s||view!=='workbench')return;
- const plot=$('#scatter-chart');if(plot)plot.innerHTML=Charts.renderScatter(s.stages,scatterMetric,s.type==='custom-workflow');
+ const plot=$('#scatter-chart');if(plot)plot.innerHTML=renderScatterChart(s);
  const rows=$('#record-rows');if(rows)rows.innerHTML=sessionRows(s);
  if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',C.n(changed.value)!==null);
 }

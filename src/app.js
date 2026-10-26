@@ -96,19 +96,20 @@ function liveControls(s){const e=s.execution;
  return (e.status==='running'?btn('pause',icon('pause')+' 暂停','btn btn-primary'):btn('start',icon('play')+' 继续','btn btn-primary'))+btn('next',icon('arrow')+' 下一阶段','btn btn-dark')+btn('finish',icon('stop')+' 结束','btn btn-dark');
 }
 function fmtTime(ms){const secs=Math.ceil(Math.max(0,ms)/1000);const mm=Math.floor(secs/60),ss=secs%60;return `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
+function renderStageHeartRate(hr){return `${fmt(hr.value)}${hr.source?`<small class="stage-hr-source">${hr.source==='recorded'?'记录均值':'手填'}${hr.source==='recorded'&&hr.manual!==null?' · 手填 '+fmt(hr.manual):''}</small>`:''}`}
 function sessionRows(s){
- const e=s.execution;
+ const e=s.execution,summaries=R.summarizeStages(s);
  return s.stages.map((st,i)=>{
- const lac=C.n(st.lactate);
+ const lac=C.n(st.lactate),hr=R.readStageHeartRate(s,i,summaries[i]);
  return `<tr class="${i===e.stageIndex&&e.status!=='done'?'active-row':''}"><td><span class="table-index">${String(i+1).padStart(2,'0')}</span></td><td><strong>${esc(W.formatTarget(st))}</strong>${s.type==='custom-workflow'?`<div>${esc(describeStage(s,i))}${st.skipped?' · 已跳过':''}</div>`:''}</td><td>${W.formatDuration(st.durationSec)}</td>
- <td>${lac===null?'—':fmt(lac,1)}</td><td>${esc(st.hr??'—')}</td><td>${esc(st.rpe??'—')}</td>
+ <td>${lac===null?'—':fmt(lac,1)}</td><td data-stage-hr="${i}">${renderStageHeartRate(hr)}</td><td data-stage-max-hr="${i}">${fmt(hr.max)}</td><td>${esc(st.rpe??'—')}</td>
  <td>${st.quality==='exclude'?'排除':st.quality==='suspect'?'可疑':'正常'}</td><td>${esc(st.notes||'—')}</td>
  <td>${btn('edit-sample',lac===null||C.n(st.rpe)===null?'补录':'修改','btn btn-sm',`data-index="${i}" aria-label="录入第${i+1}级数据"`)}</td></tr>`;
  }).join('');
 }
 function recordTable(s){
  return `<div class="card card-pad section-space"><div class="details"><div><div class="card-title">阶段记录</div></div><div class="details-tools">${btn('export-csv',icon('download')+' CSV','btn btn-sm')}${btn('export-json',icon('file')+' JSON','btn btn-sm')}</div></div>
-  <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th><th>记录</th></tr></thead><tbody id="record-rows">${sessionRows(s)}</tbody></table></div>
+  <div class="data-table-wrap"><table class="data-table"><thead><tr><th>级</th><th>目标功率</th><th>时长</th><th>乳酸 mmol/L</th><th>平均心率 bpm</th><th>最大心率 bpm</th><th>RPE</th><th>样本质量</th><th>备注</th><th>记录</th></tr></thead><tbody id="record-rows">${sessionRows(s)}</tbody></table></div>
  </div>`;
 }
 function renderDevices(s){
@@ -117,6 +118,22 @@ function renderDevices(s){
 }
 function renderHrv(s){
  return `<div class="card card-pad section-space" id="hrv-card"><div class="details"><div class="card-title">HRV · DFA α1</div><div class="details-tools">${btn('export-hrv',icon('download')+' HRV CSV','btn btn-sm',s.recording?.hrv?.estimates.length?'':'disabled')}${btn('export-rr','RR CSV','btn btn-sm',s.recording?.hrv?.packets.length?'':'disabled')}</div></div><div class="hrv-reading"><strong id="hrv-alpha">—</strong><span id="hrv-status" role="status"></span></div><div class="chart-surface" id="hrv-chart"></div><p class="hrv-note">需要心率带提供 RR · 2 分钟窗口 · 每 5 秒更新</p></div>`;
+}
+function renderHeartRate(){
+ return `<div class="card card-pad section-space" id="heart-rate-card"><div class="details"><div class="card-title">心率记录</div><div id="heart-rate-summary"></div></div><div class="chart-surface" id="heart-rate-chart"></div><p class="hrv-note">按已记录的有效读数统计，包含采样间隔；暂停与缺失不计入均值，曲线中断处不补点。</p></div>`;
+}
+function paintHeartRate(s){
+ const chart=$('#heart-rate-chart');if(!s||!chart)return;
+ const r=s.recording,compact=chart.clientWidth<480,key=[s.id,r?.records.length,r?.endedAt,r?.spans.length,r?.spans.at(-1)?.endAt,compact].join('-');
+ if(chart.dataset.key===key)return;
+ const stats=R.summarizeRecords(R.selectRecords(r)).hr;
+ $('#heart-rate-summary').textContent=`平均 ${fmt(stats.avg)} · 最大 ${fmt(stats.max)} bpm · ${stats.count.toLocaleString()} 条`;
+ chart.innerHTML=Charts.renderHeartRate(r,compact);chart.dataset.key=key;
+ R.summarizeStages(s).forEach((summary,i)=>{
+  $(`[data-stage-hr="${i}"]`).innerHTML=renderStageHeartRate(R.readStageHeartRate(s,i,summary));
+  $(`[data-stage-max-hr="${i}"]`).textContent=fmt(summary.hr.max);
+ });
+ if(scatterMetric==='hr')$('#scatter-chart').innerHTML=renderScatterChart(s);
 }
 function paintHrv(s){
  if(!s||!$('#hrv-card'))return;
@@ -138,7 +155,7 @@ function paintDevices(){
   const button=$(`#device-${kind}-button`);button.textContent=slot.status==='connected'?'断开':slot.status==='connecting'?'连接中…':slot.name?'重新连接':'连接';button.disabled=slot.status==='connecting'||!!D.describeSupport();button.dataset.action=slot.status==='connected'?'disconnect-device':'connect-device';
  }
  const values=D.readSnapshot();for(const key of ['power','hr','cadence']){const text=values[key]===null?'—':fmt(values[key]);$(`#sensor-${key}`).textContent=text;const live=$(`[data-live-sensor="${key}"]`);if(live)live.textContent=text}
- const s=active(),r=s?.recording;paintHrv(s);
+ const s=active(),r=s?.recording;paintHrv(s);paintHeartRate(s);
  const distance=r?.records.findLast(x=>Number.isFinite(x.distance))?.distance??null;
  for(const [key,value,digits] of [['speed',values.speed===null?null:values.speed*3.6,1],['distance',distance===null?null:distance/1000,2],['grade',values.grade,2]])$(`#sensor-${key}`).textContent=value===null?'—':fmt(value,digits);
  $('#recording-note').textContent=r?`${s.execution.status==='running'?'记录中':s.execution.status==='done'?'记录完成':'记录暂停'} · ${r.records.length.toLocaleString()} 条`:'';
@@ -179,14 +196,19 @@ function captureActivity(now=Date.now()){
  paintDevices();
 }
 function pauseActive(){if(active()?.execution.status==='running')pause()}
+function renderScatterChart(s){
+ const summaries=scatterMetric==='hr'?R.summarizeStages(s):null;
+ const stages=scatterMetric==='hr'?s.stages.map((st,i)=>{const hr=R.readStageHeartRate(s,i,summaries[i]);return {...st,hr:hr.value,hrSource:hr.source}}):s.stages;
+ return Charts.renderScatter(stages,scatterMetric,s.type==='custom-workflow');
+}
 function renderScatter(s){
- return `<div class="card card-pad"><div class="card-heading"><div class="card-title">数据散点图</div><div class="scatter-controls" aria-label="散点图数据">${[['lactate','乳酸'],['hr','心率'],['rpe','RPE']].map(([metric,label])=>btn('scatter-metric',label,`btn btn-sm ${metric===scatterMetric?'btn-soft':''}`,`data-metric="${metric}" aria-pressed="${metric===scatterMetric}"`)).join('')}</div></div><div class="chart-surface" id="scatter-chart">${Charts.renderScatter(s.stages,scatterMetric,s.type==='custom-workflow')}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>正常</span><span><i class="legend-dot" style="background:#dc9053"></i>可疑</span><span><i class="legend-dot" style="background:#94a2a7"></i>标记排除</span></div></div>`;
+ return `<div class="card card-pad"><div class="card-heading"><div class="card-title">数据散点图</div><div class="scatter-controls" aria-label="散点图数据">${[['lactate','乳酸'],['hr','心率'],['rpe','RPE']].map(([metric,label])=>btn('scatter-metric',label,`btn btn-sm ${metric===scatterMetric?'btn-soft':''}`,`data-metric="${metric}" aria-pressed="${metric===scatterMetric}"`)).join('')}</div></div><div class="chart-surface" id="scatter-chart">${renderScatterChart(s)}</div><div class="chart-legend"><span><i class="legend-dot" style="background:#178a72"></i>正常</span><span><i class="legend-dot" style="background:#dc9053"></i>可疑</span><span><i class="legend-dot" style="background:#94a2a7"></i>标记排除</span></div>${scatterMetric==='hr'?'<p class="hrv-note">优先显示分段平均心率；没有设备记录的分段显示手填值。</p>':''}</div>`;
 }
 function renderWorkbench(){
  const s=active();
  const head=heading('测试工作台',s?btn('edit',icon('edit')+' 测试信息','btn btn-sm'):'');
  if(!s)return head+C.emptyState('暂无测试','','droplet',btn('new',icon('plus')+' 新建测试','btn btn-primary'));
- return head+(s.type==='custom-workflow'?`<div class="card card-pad workflow-profile-card"><div class="card-title">计划功率 · ${W.formatDuration(s.stages.reduce((sum,x)=>sum+x.durationSec,0))}</div><div class="workflow-profile">${W.renderProfile(s.stages,0)}</div></div>`:'')+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHrv(s)+recordTable(s);
+ return head+(s.type==='custom-workflow'?`<div class="card card-pad workflow-profile-card"><div class="card-title">计划功率 · ${W.formatDuration(s.stages.reduce((sum,x)=>sum+x.durationSec,0))}</div><div class="workflow-profile">${W.renderProfile(s.stages,0)}</div></div>`:'')+`<div class="grid-main"><div>${renderLive(s)}</div><div id="scatter-card">${renderScatter(s)}</div></div>`+renderDevices(s)+renderHeartRate()+renderHrv(s)+recordTable(s);
 }
 function renderHistory(){
  const filtered=db.sessions.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.type.includes(search.toLowerCase()));
@@ -538,7 +560,7 @@ function handleInput(event){
 }
 function refreshDataDisplay(changed){
  const s=active();if(!s||view!=='workbench')return;
- const plot=$('#scatter-chart');if(plot)plot.innerHTML=Charts.renderScatter(s.stages,scatterMetric,s.type==='custom-workflow');
+ const plot=$('#scatter-chart');if(plot)plot.innerHTML=renderScatterChart(s);
  const rows=$('#record-rows');if(rows)rows.innerHTML=sessionRows(s);
  if(changed?.dataset?.field==='lactate')changed.classList.toggle('filled',C.n(changed.value)!==null);
 }
