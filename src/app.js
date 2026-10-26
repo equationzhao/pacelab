@@ -8,6 +8,8 @@ let db=C.read();
 let lastRecordingSave=0;
 let controlledSessionId=null;
 let lastTrainerStatus='disconnected';
+let soundContext=null;
+const sampleTickSeconds=new WeakMap();
 for(const session of db.sessions)if(R.recoverRecording(session))C.write(db);
 let view='workbench',preset='fine',goal='fine',search='',scatterMetric='lactate';
 const $=q=>document.querySelector(q);
@@ -59,7 +61,11 @@ function updateSampleNotices(s){
  const e=s.execution,st=s.stages[e.stageIndex],elapsed=elapsedNow(e);
  const state=s.type==='custom-workflow'?W.readSamplingState(st,elapsed):e.phase==='sampling'||elapsed>=st.durationSec*1000?'ended':elapsed>=Math.max(0,st.durationSec*1000-30000)?'window':'waiting';
  const rank={waiting:0,prepare:1,window:2,ended:3,none:0};
- if(rank[state]>(st.sampleNotice||0)){st.sampleNotice=rank[state];if(s.protocol.beep&&['prepare','window'].includes(state))beep();persist(s)}
+ if(rank[state]>(st.sampleNotice||0)){st.sampleNotice=rank[state];persist(s)}
+ if(e.status==='running'&&s.protocol.beep&&['prepare','window'].includes(state)){
+  const second=Math.floor(elapsed/1000);
+  if(sampleTickSeconds.get(st)!==second){sampleTickSeconds.set(st,second);beep(true)}
+ }
  if(s.type==='custom-workflow'&&state==='window'&&e.sampleEntryIndex!==e.stageIndex&&!document.activeElement?.closest('#live-sample-entry')){e.sampleEntryIndex=e.stageIndex;persist(s)}
 }
 
@@ -295,6 +301,8 @@ function start(skipResting=false){const s=active();if(!s)return;let e=s.executio
   else{const input=$('#resting-lactate');if(!input||!saveRestingSample(input,true))return}
   e.stageIndex=0;e.phase='effort';e.elapsedMs=0;
  }
+ sampleTickSeconds.set(s.stages[e.stageIndex],Math.floor(e.elapsedMs/1000));
+ if(s.protocol.beep)prepareSound();
  e.status='running';e.startedAt=Date.now();R.beginRecording(s,e.startedAt);syncErgControl(true);captureActivity(e.startedAt);persist(s);render();if(s.protocol.beep)beep();}
 function saveRestingSample(input,required=false){const s=active();if(!s||s.execution.status!=='idle')return false;
  input.setCustomValidity('');
@@ -311,8 +319,25 @@ function finish(){const s=active();if(!s)return;if(s.execution.status==='done')r
 function nextStage(){const s=active();if(!s)return;const e=s.execution;
  if(s.type==='custom-workflow'){s.stages[e.stageIndex].skipped=elapsedNow(e)<phaseDuration(s);s.stages[e.stageIndex].sampleNotice=3}
  if(e.stageIndex>=s.stages.length-1){captureActivity();e.status='done';e.finishedAt=new Date().toISOString();e.startedAt=null;e.elapsedMs=0;R.stopRecording(s,Date.now(),true);syncErgControl();persist(s);render();return}
- e.stageIndex++;e.phase='effort';e.elapsedMs=0;e.startedAt=Date.now();e.status='running';R.beginRecording(s,e.startedAt);R.syncStage(s,e.startedAt);syncErgControl();captureActivity();persist(s);render();if(s.protocol.beep)beep();}
-function beep(){try{const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx();const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=784;g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.12,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.23);o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.25);setTimeout(()=>ctx.close(),600)}catch{}}
+ e.stageIndex++;e.phase='effort';e.elapsedMs=0;e.startedAt=Date.now();e.status='running';sampleTickSeconds.set(s.stages[e.stageIndex],0);R.beginRecording(s,e.startedAt);R.syncStage(s,e.startedAt);syncErgControl();captureActivity();persist(s);render();if(s.protocol.beep){prepareSound();beep()}}
+function prepareSound(){
+ try{
+  const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return;
+  if(!soundContext||soundContext.state==='closed')soundContext=new AudioCtx();
+  if(soundContext.state==='suspended')soundContext.resume().catch(()=>{});
+ }catch{/* Sound is optional; timing and recording continue without audio support. */}
+}
+function beep(tick=false){
+ try{
+  const ctx=soundContext;if(!ctx||ctx.state==='suspended'||ctx.state==='closed')return;
+  const o=ctx.createOscillator(),g=ctx.createGain(),now=ctx.currentTime;
+  o.type='sine';o.frequency.value=tick?1200:784;
+  g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(tick ? .07 : .12,now+(tick ? .004 : .02));
+  g.gain.exponentialRampToValueAtTime(.0001,now+(tick ? .05 : .23));
+  o.connect(g);g.connect(ctx.destination);o.onended=()=>{o.disconnect();g.disconnect()};
+  o.start();o.stop(now+(tick ? .06 : .25));
+ }catch{}
+}
 function updateExecution(){const s=active();if(!s||s.execution.status!=='running')return;updateSampleNotices(s);
  const e=s.execution;let transitions=0;
  while(e.status==='running'&&elapsedNow(e)>=phaseDuration(s)&&transitions<s.stages.length*2){
@@ -323,7 +348,7 @@ function updateExecution(){const s=active();if(!s||s.execution.status!=='running
   if(e.phase==='effort'&&s.protocol.samplingMode==='solo'){
     e.phase='sampling';e.elapsedMs=Math.max(0,phaseOverrun);e.startedAt=Date.now();if(s.protocol.beep&&(s.type!=='custom-workflow'||phaseOverrun<phaseDuration(s)))beep();
   }else if(e.stageIndex<s.stages.length-1){
-    e.stageIndex++;e.phase='effort';e.elapsedMs=Math.max(0,phaseOverrun);e.startedAt=Date.now();if(s.protocol.beep&&(s.type!=='custom-workflow'||phaseOverrun<phaseDuration(s)))beep();
+    e.stageIndex++;e.phase='effort';e.elapsedMs=Math.max(0,phaseOverrun);e.startedAt=Date.now();if(s.protocol.beep&&(s.type!=='custom-workflow'||phaseOverrun<phaseDuration(s))){sampleTickSeconds.set(s.stages[e.stageIndex],Math.floor(e.elapsedMs/1000));beep()}
   }else{
     e.status='done';e.startedAt=null;e.finishedAt=new Date().toISOString();e.elapsedMs=duration;
   }
