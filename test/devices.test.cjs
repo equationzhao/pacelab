@@ -68,3 +68,19 @@ test('RR parsing retains all intervals and precision across HR and energy layout
  assert.equal(D.parseHeart(packet(4,[[0,20,'Uint8'],[1,120,'Uint8'],[2,512]])).contact,false);
  for(const values of [[3,[[0,16,'Uint8']]],[2,[[0,16,'Uint8']]],[3,[[0,8,'Uint8']]]])assert.throws(()=>D.parseHeart(packet(...values)));
 });
+test('trainer motion decodes uint24 metres, signed resistance and simulation grade independently',()=>{
+ const values=D.parseTrainer(packet(11,[[0,16|32|64],[2,12345],[4,0x3456],[6,0x12,'Uint8'],[7,-12,'Int16'],[9,250,'Int16']]));
+ assert.equal(values.speed,12345/360);assert.equal(values.trainerDistance,0x123456);assert.equal(values.trainerResistance,-12);assert.equal(values.power,250);
+ const split=D.parseTrainer(packet(5,[[0,1|16],[2,65535],[4,255,'Uint8']]));assert.equal(split.trainerDistance,0xffffff);assert.equal(split.speed,undefined);
+ assert.equal(D.parseTrainerStatus(packet(7,[[0,0x12,'Uint8'],[1,-123,'Int16'],[3,-525,'Int16']])).grade,-5.25);
+ assert.equal(D.parseTrainerStatus(packet(7,[[0,0x12,'Uint8'],[3,0,'Int16']])).grade,0);
+ for(const bytes of [0,1,2,3,4,5,6])assert.throws(()=>D.parseTrainerStatus(packet(bytes,bytes?[[0,0x12,'Uint8']]:[])));
+ for(const opcode of [1,255,5,6,7,8])assert.equal(D.parseTrainerStatus(packet(3,[[0,opcode,'Uint8']])).grade,null);
+ assert.equal(D.parseTrainerStatus(packet(1,[[0,4,'Uint8']])).grade,undefined);
+});
+test('motion freshness is independent, simulation settings survive only with live telemetry',()=>{
+ const d=loadDevices(),slot=d.slots.trainer;slot.status='connected';slot.connectionToken={};
+ slot.values={speed:{value:0,at:10000},trainerDistance:{value:42,at:1000},trainerResistance:{value:-10,at:10000},grade:{value:-3.5,at:1}};
+ const snapshot=d.readSnapshot(10000);assert.equal(snapshot.speed,0);assert.equal(snapshot.trainerDistance,null);assert.equal(snapshot.trainerResistance,-10);assert.equal(snapshot.grade,-3.5);assert.equal(snapshot.gradeSource,'trainerSimulation');assert.equal(snapshot.trainerConnection,slot.connectionToken);
+ assert.equal(d.readSnapshot(15001).grade,null);slot.status='disconnected';assert.equal(d.readSnapshot(10000).speed,null);assert.equal(d.readSnapshot(10000).gradeSource,null);
+});

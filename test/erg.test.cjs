@@ -68,3 +68,13 @@ test('external stop and target changes are reported; disposal cancels an in-flig
  f.notify([2,2]);assert.match(c.state.error,/停止或暂停/);c.disposeController();f.notify([255]);assert.equal(c.state.phase,'disconnected');
  const held=fixture({respond:(bytes,respond)=>{if(bytes[0]===0)queueMicrotask(()=>respond(0))}});await held.controller.initializeController();held.controller.setDesired('running',120);held.controller.disposeController();await held.controller.waitForIdle();assert.equal(held.controller.state.phase,'disconnected');
 });
+test('telemetry hooks observe status and invalidate simulation settings before ERG power writes',async()=>{
+ const f=fixture(),seen=[];
+ // Reuse the fixture service through a dedicated minimal controller.
+ const point=new EventTarget(),status=new EventTarget();point.startNotifications=status.startNotifications=async()=>{};
+ point.writeValueWithResponse=async bytes=>{seen.push(['write',bytes[0]]);queueMicrotask(()=>{point.value=new DataView(Uint8Array.from([128,bytes[0],1]).buffer);point.dispatchEvent(new Event('characteristicvaluechanged'))})};
+ const service={getCharacteristic:async id=>({[0x2acc]:{readValue:async()=>f.features},[0x2ad8]:{readValue:async()=>f.range},[0x2ad9]:point,[0x2ada]:status})[id]};
+ const c=E.createController(service,()=>{},{onPowerTarget:()=>seen.push(['clear']),onStatus:view=>seen.push(['status',view.getUint8(0)])});
+ await c.initializeController();c.setDesired('running',120);await c.waitForIdle();assert.deepEqual(seen,[['write',0],['clear'],['write',5],['write',7]]);
+ status.value=new DataView(Uint8Array.from([0x12,0,0,0,0,0,0]).buffer);status.dispatchEvent(new Event('characteristicvaluechanged'));assert.deepEqual(seen.at(-1),['status',0x12]);c.disposeController();
+});

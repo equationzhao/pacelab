@@ -8,7 +8,8 @@
     {id:'short',name:'短时阶梯',minIncrement:25,maxIncrement:30,incrementRatio:.1,stageMinutes:4,stageCount:9}
   ];
   const definitions=[
-    {id:'lactate-step',name:'乳酸阶梯测试',icon:'droplet'}
+    {id:'lactate-step',name:'乳酸阶梯测试',icon:'droplet'},
+    {id:'custom-workflow',name:'自定义流程',icon:'layers'}
   ];
   function validAthlete(x){
     const a={name:String(x?.name||'').trim().slice(0,100),sex:String(x?.sex||''),age:Number(x?.age),ftp:Number(x?.ftp)};
@@ -35,7 +36,7 @@
     const now=new Date().toISOString();
     return {id:uid(),type:'lactate-step',schemaVersion:1,name:input.name||'乳酸阶梯测试',createdAt:now,updatedAt:now,
       athlete:input.athlete?{...input.athlete}:null,
-      protocol:{preset:readGoalId(input.preset)||input.preset||'custom',goal:readGoalId(input.goal),startPower:input.startPower,increment:input.increment,stageMinutes:input.stageMinutes,stageCount:input.stageCount,samplingMode:input.samplingMode,samplePauseSec:input.samplePauseSec||45,sampleSite:input.sampleSite||'earlobe',beep:!!input.beep},
+      protocol:{preset:readGoalId(input.preset)||input.preset||'custom',goal:readGoalId(input.goal),startPower:input.startPower,increment:input.increment,stageMinutes:input.stageMinutes,stageCount:input.stageCount,samplingMode:input.samplingMode,samplePauseSec:input.samplePauseSec||45,sampleSite:input.sampleSite||'earlobe',beep:input.beep!==false},
       metadata:{notes:'',device:'',environment:'',operator:''},
       restingSample:null,
       stages,
@@ -43,7 +44,7 @@
     };
   }
   function validInput(x){
-    const v={startPower:Number(x.startPower),increment:Number(x.increment),stageMinutes:Number(x.stageMinutes),stageCount:Number(x.stageCount),samplePauseSec:Number(x.samplePauseSec||45),name:String(x.name||'').trim().slice(0,100),samplingMode:x.samplingMode==='solo'?'solo':'assisted',sampleSite:['earlobe','fingertip'].includes(x.sampleSite)?x.sampleSite:'earlobe',beep:!!x.beep,preset:String(x.preset||'custom')};
+    const v={startPower:Number(x.startPower),increment:Number(x.increment),stageMinutes:Number(x.stageMinutes),stageCount:Number(x.stageCount),samplePauseSec:Number(x.samplePauseSec||45),name:String(x.name||'').trim().slice(0,100),samplingMode:x.samplingMode==='solo'?'solo':'assisted',sampleSite:['earlobe','fingertip'].includes(x.sampleSite)?x.sampleSite:'earlobe',beep:x.beep!==false,preset:String(x.preset||'custom')};
     v.goal=readGoalId(x.goal);v.preset=readGoalId(x.preset)||v.preset;
     v.athlete=x.athlete?validAthlete(x.athlete):null;
     if(!Number.isInteger(v.startPower)||v.startPower<20||v.startPower>600)throw Error('起始功率应为 20–600 W 的整数');

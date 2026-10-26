@@ -1,10 +1,11 @@
 (function(){
 'use strict';
 const Lab=window.Lab;
+const distanceStates=new WeakMap();
 function beginRecording(s,now=Date.now()){
  if(!s.recording)s.recording={version:1,startedAt:now,endedAt:null,records:[],spans:[],windows:[]};
  const r=s.recording;
- if(!r.spans.length||r.spans.at(-1).endAt!==null){r.spans.push({startAt:now,endAt:null});Lab.hrv?.resetWindow(r,now)}
+ if(!r.spans.length||r.spans.at(-1).endAt!==null){r.spans.push({startAt:now,endAt:null});distanceStates.delete(r);Lab.hrv?.resetWindow(r,now)}
  syncStage(s,now);
 }
 function syncStage(s,now=Date.now()){
@@ -21,13 +22,35 @@ function stopRecording(s,now=Date.now(),done=false){
 function captureRecord(s,snapshot,now=Date.now()){
  const r=s.recording;if(!r||s.execution.status!=='running'||r.endedAt!==null)return false;
  if(r.records.length&&Math.floor(r.records.at(-1).timestamp/1000)>=Math.floor(now/1000))return false;
- r.records.push({timestamp:now,stage:s.execution.stageIndex,phase:s.execution.phase,targetPower:s.stages[s.execution.stageIndex].power,...snapshot});
+ const {trainerConnection,trainerDistanceAt,speedAt,...values}=snapshot;
+ r.records.push({timestamp:now,stage:s.execution.stageIndex,phase:s.execution.phase,targetPower:s.execution.phase==='sampling'?null:Lab.workflow?.resolveTargetPower(s.stages[s.execution.stageIndex],(s.execution.elapsedMs||0)+(s.execution.startedAt?Math.max(0,now-s.execution.startedAt):0))??s.stages[s.execution.stageIndex].power,...values,...captureDistance(r,snapshot,now)});
  return true;
+}
+function captureDistance(r,snapshot,now){
+ let state=distanceStates.get(r);
+ if(!state){state={total:r.records.findLast(x=>Number.isFinite(x.distance))?.distance??0,previous:null};distanceStates.set(r,state)}
+ const spanStart=r.spans.at(-1).startAt;
+ // A cached notification from before start/resume must not count warmup or paused movement.
+ const raw=(snapshot.trainerDistanceAt??now)>=spanStart&&Number.isFinite(snapshot.trainerDistance)&&snapshot.trainerDistance>=0&&snapshot.trainerDistance<=0xffffff?snapshot.trainerDistance:null;
+ const speed=(snapshot.speedAt??now)>=spanStart&&Number.isFinite(snapshot.speed)&&snapshot.speed>=0?snapshot.speed:null;
+ const source=raw!==null?'trainer':speed!==null?'speed':null,previous=state.previous;
+ let delta=source===null?null:0,startAt=now;
+ if(source&&previous?.source===source&&previous.connection===snapshot.trainerConnection&&now-previous.at<=5000){
+  startAt=previous.at;
+  if(source==='trainer'){
+   // A smaller counter normally means a device reset. Only unwrap close to uint24 rollover.
+   delta=raw>=previous.raw?raw-previous.raw:previous.raw>=0xffff00&&raw<=0xff?0x1000000-previous.raw+raw:0;
+  }else delta=(previous.speed+speed)/2*(now-previous.at)/1000;
+ }
+ if(delta!==null)state.total+=delta;
+ state.previous={at:now,raw,speed,source,connection:snapshot.trainerConnection};
+ return {distance:source?state.total:null,distanceDelta:delta,distanceStartAt:source?startAt:null,distanceSource:source};
 }
 function measureTimer(r,start,end){return r.spans.reduce((sum,span)=>sum+Math.max(0,Math.min(end,span.endAt??end)-Math.max(start,span.startAt)),0)}
 function readSampleTime(s,index,now=Date.now()){
  const st=s.stages[index],w=s.recording?.windows.find(w=>w.index===index);if(!w)return null;
  const end=w.endAt??now,time=Number(st.sampleAt)||Date.parse(st.recordedAt);
+ if(s.type==='custom-workflow'&&(!Number.isFinite(st.sampleAt)||st.sampleAt<w.startAt||st.sampleAt>end))return null;
  return Number.isFinite(time)&&time>=w.startAt&&time<=end?time:Math.min(end,w.effortEndAt??end);
 }
 function recoverRecording(s,now=Date.now()){
@@ -46,8 +69,15 @@ function readRecording(raw,stageCount){
  const records=raw.records.map(x=>{
   if(!validTime(x.timestamp)||x.timestamp<raw.startedAt||raw.endedAt!==null&&x.timestamp>raw.endedAt||x.timestamp<previous||!Number.isInteger(x.stage)||x.stage<0||x.stage>=stageCount)invalid();previous=x.timestamp;
   const clean={timestamp:x.timestamp,stage:x.stage,phase:x.phase==='sampling'?'sampling':'effort',targetPower:Number.isFinite(x.targetPower)?Math.max(0,Math.min(1200,x.targetPower)):null};
-  for(const [key,max] of [['power',65534],['hr',254],['cadence',254],['speed',65]]){clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=max?x[key]:null;clean[key+'Source']=['power','heart','trainer'].includes(x[key+'Source'])?x[key+'Source']:null}
-  for(const key of ['powerMeterPower','trainerPower'])if(Object.hasOwn(x,key))clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=65534?x[key]:null;
+  for(const [key,max] of [['power',65534],['hr',254],['cadence',254],['speed',65535/360]]){clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=max?x[key]:null;clean[key+'Source']=['power','heart','trainer'].includes(x[key+'Source'])?x[key+'Source']:null}
+  for(const key of ['powerMeterPower','trainerPower','confirmedTargetPower'])if(Object.hasOwn(x,key))clean[key]=Number.isFinite(x[key])&&x[key]>=0&&x[key]<=65534?x[key]:null;
+  for(const [key,min,max] of [['trainerDistance',0,0xffffff],['trainerResistance',-32768,32767],['grade',-327.68,327.67],['distance',0,42949672.94],['distanceDelta',0,42949672.94]]){
+   if(Object.hasOwn(x,key))clean[key]=Number.isFinite(x[key])&&x[key]>=min&&x[key]<=max?x[key]:null;
+  }
+  for(const key of ['trainerDistanceSource','trainerResistanceSource'])if(Object.hasOwn(x,key))clean[key]=x[key]==='trainer'?'trainer':null;
+  if(Object.hasOwn(x,'gradeSource'))clean.gradeSource=x.gradeSource==='trainerSimulation'?'trainerSimulation':null;
+  if(Object.hasOwn(x,'distanceSource'))clean.distanceSource=['trainer','speed'].includes(x.distanceSource)?x.distanceSource:null;
+  if(Object.hasOwn(x,'distanceStartAt'))clean.distanceStartAt=validTime(x.distanceStartAt)&&x.distanceStartAt>=raw.startedAt&&x.distanceStartAt<=x.timestamp?x.distanceStartAt:null;
   return clean;
  });
  const readRanges=(ranges,windows=false)=>{let last=raw.startedAt;return ranges.map((x,i)=>{

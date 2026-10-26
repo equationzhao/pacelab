@@ -37,13 +37,21 @@ function parsePower(view,previous=null,now=Date.now()){
 function parseTrainer(view){
  const flags=view.getUint16(0,true),values={};let offset=2;
  if(!(flags&1)){values.speed=view.getUint16(offset,true)/360;offset+=2}
- for(const [bit,size,key,scale,signed] of [[1,2],[2,2,'cadence',.5],[3,2],[4,3],[5,2],[6,2,'power',1,true],[7,2],[8,5],[9,1,'hr',1],[10,1],[11,2],[12,2]]){
+ for(const [bit,size,key,scale,signed] of [[1,2],[2,2,'cadence',.5],[3,2],[4,3,'trainerDistance',1],[5,2,'trainerResistance',1,true],[6,2,'power',1,true],[7,2],[8,5],[9,1,'hr',1],[10,1],[11,2],[12,2]]){
   if(!(flags&(1<<bit)))continue;
   if(offset+size>view.byteLength)throw Error('骑行台数据不完整');
-  if(key){const value=size===1?view.getUint8(offset):signed?view.getInt16(offset,true):view.getUint16(offset,true);values[key]=(value<0||(key==='hr'&&(value===0||value===255))||(key==='cadence'&&value*scale>254))?null:value*scale}
+  if(key){const value=size===3?view.getUint16(offset,true)+view.getUint8(offset+2)*65536:size===1?view.getUint8(offset):signed?view.getInt16(offset,true):view.getUint16(offset,true);values[key]=((key==='power'&&value<0)||(key==='hr'&&(value===0||value===255))||(key==='cadence'&&value*scale>254))?null:value*scale}
   offset+=size;
  }
  return values;
+}
+function parseTrainerStatus(view){
+ if(!view.byteLength)throw Error('骑行台状态不完整');
+ const opcode=view.getUint8(0);
+ // FTMS status 0x12 is a simulation setting, not a measured road inclination.
+ if(opcode===0x12){if(view.byteLength<7)throw Error('骑行台模拟参数不完整');return {grade:view.getInt16(3,true)/100}}
+ if(opcode===1||opcode===0xff||[5,6,7,8].includes(opcode)&&view.byteLength>=3)return {grade:null};
+ return {};
 }
 function describeSupport(){return !window.isSecureContext?'蓝牙连接需要 HTTPS 或 localhost，请打开在线版。':!navigator.bluetooth?'当前浏览器不支持蓝牙连接，请使用电脑端 Chrome / Edge 或 Android Chrome。':''}
 function clearConnection(slot){
@@ -51,7 +59,7 @@ function clearConnection(slot){
  slot.erg?.disposeController();slot.erg=null;
  if(slot.characteristic&&slot.onValue)slot.characteristic.removeEventListener('characteristicvaluechanged',slot.onValue);
  if(slot.device&&slot.onDisconnect)slot.device.removeEventListener('gattserverdisconnected',slot.onDisconnect);
- slot.characteristic=null;slot.onValue=null;slot.onDisconnect=null;slot.values={};slot.crank=null;
+ slot.characteristic=null;slot.onValue=null;slot.onDisconnect=null;slot.values={};slot.crank=null;slot.distanceEpoch=null;
 }
 async function connectDevice(kind){
  const spec=specs[kind],slot=slots[kind];if(!spec||slot.status==='connecting')return;
@@ -80,7 +88,16 @@ async function connectDevice(kind){
   };
   characteristic.addEventListener('characteristicvaluechanged',slot.onValue);
   await characteristic.startNotifications();checkConnection();
-  if(kind==='trainer'){slot.erg=Lab.erg.createController(service,emitChange);await slot.erg.initializeController()}
+  if(kind==='trainer'){
+   const clearGrade=()=>{delete slot.values.grade};
+   slot.erg=Lab.erg.createController(service,emitChange,{onPowerTarget:clearGrade,onStatus:view=>{
+    try{
+     const values=parseTrainerStatus(view);
+     if(view.getUint8(0)===1){slot.distanceEpoch={};delete slot.values.trainerDistance;delete slot.values.speed}
+     for(const [key,value] of Object.entries(values))slot.values[key]={value,at:Date.now()};emitChange();
+    }catch{/* Ignore truncated status notifications. */}
+   }});await slot.erg.initializeController();
+  }
   checkConnection();
   if(!device.gatt.connected)throw Error('设备已断开，请重新连接');
   slot.status='connected';emitChange();
@@ -105,10 +122,17 @@ async function disconnectDevice(kind){
 function readSnapshot(now=Date.now()){
  const fresh=(kind,key)=>{const slot=slots[kind],sample=slot.values[key];return slot.status==='connected'&&sample&&now>=sample.at&&now-sample.at<=5000&&Number.isFinite(sample.value)?{value:sample.value,source:kind}:null};
  const output={powerMeterPower:fresh('power','power')?.value??null,trainerPower:fresh('trainer','power')?.value??null};
- for(const [key,kinds] of Object.entries({power:['power','trainer'],cadence:['power','trainer'],hr:['heart','trainer'],speed:['trainer']})){
+ for(const [key,kinds] of Object.entries({power:['power','trainer'],cadence:['power','trainer'],hr:['heart','trainer'],speed:['trainer'],trainerDistance:['trainer'],trainerResistance:['trainer']})){
   const sample=kinds.map(kind=>fresh(kind,key)).find(Boolean);output[key]=sample?.value??null;output[key+'Source']=sample?.source??null;
  }
+ // Settings arrive only when changed. Retain them while live trainer telemetry continues.
+ const liveTrainer=['speed','power','cadence','trainerDistance'].some(key=>fresh('trainer',key));
+ output.grade=liveTrainer&&Number.isFinite(slots.trainer.values.grade?.value)?slots.trainer.values.grade.value:null;
+ output.gradeSource=output.grade===null?null:'trainerSimulation';
+ output.trainerConnection=slots.trainer.distanceEpoch??slots.trainer.connectionToken;
+ output.trainerDistanceAt=slots.trainer.values.trainerDistance?.at;
+ output.speedAt=slots.trainer.values.speed?.at;
  return output;
 }
-Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},subscribeHeart(fn){heartListeners.add(fn);return ()=>heartListeners.delete(fn)}};
+Lab.devices={specs,slots,describeSupport,connectDevice,disconnectDevice,readSnapshot,parseHeart,parsePower,parseTrainer,parseTrainerStatus,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},subscribeHeart(fn){heartListeners.add(fn);return ()=>heartListeners.delete(fn)}};
 })();

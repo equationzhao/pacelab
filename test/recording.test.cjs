@@ -65,3 +65,38 @@ test('independent power streams survive JSON round trips without filling missing
   const record=read(invalid).records[0];assert.equal(record.powerMeterPower,null);assert.equal(record.trainerPower,null);assert.equal(record.power,230);
  }
 });
+test('distance rebases trainer counters and never adds pause, reconnect, reset or missing history',()=>{
+ const s=session(),connection={};R.beginRecording(s,t);
+ const take=(second,raw,token=connection)=>{R.captureRecord(s,{trainerDistance:raw,trainerConnection:token},t+second*1000);return s.recording.records.at(-1)};
+ assert.equal(take(0,1000).distance,0);assert.equal(take(1,1010).distance,10);assert.equal(take(2,1010).distance,10);
+ R.stopRecording(s,t+2000);R.beginRecording(s,t+10000);assert.equal(take(10,2000).distance,10);assert.equal(take(11,2010).distance,20);
+ assert.equal(take(12,0).distance,20);assert.equal(take(13,8).distance,28);
+ const replacement={};assert.equal(take(14,10000,replacement).distance,28);assert.equal(take(15,10005,replacement).distance,33);
+ assert.equal(take(21,10050,replacement).distance,33);assert.equal(take(22,null,replacement).distance,null);assert.equal(take(23,10070,replacement).distance,33);
+ assert.equal('trainerConnection' in s.recording.records[0],false);
+ const imported=R.readRecording(JSON.parse(JSON.stringify(s.recording)),3),resumed=session();resumed.recording=imported;
+ R.beginRecording(resumed,t+30000);R.captureRecord(resumed,{trainerDistance:12000,trainerConnection:connection},t+30000);assert.equal(resumed.recording.records.at(-1).distance,33);
+});
+test('speed integration preserves zero, marks estimates, handles source changes and uint24 rollover',()=>{
+ const s=session();R.beginRecording(s,t);
+ const take=(second,snapshot)=>{R.captureRecord(s,snapshot,t+second*1000);return s.recording.records.at(-1)};
+ assert.equal(take(0,{speed:0}).distance,0);let record=take(2,{speed:10});assert.equal(record.distance,10);assert.equal(record.distanceSource,'speed');assert.equal(record.distanceStartAt,t);
+ assert.equal(take(3,{speed:10,trainerDistance:0xfffffe}).distance,10);
+ assert.equal(take(4,{speed:10,trainerDistance:3}).distance,15);
+ assert.equal(take(5,{speed:10}).distance,15);assert.equal(take(6,{speed:0}).distance,20);
+ assert.equal(take(7,{}).distance,null);assert.equal(take(8,{speed:10}).distance,20);assert.equal(take(20,{speed:10}).distance,20);
+});
+test('motion JSON round trip retains signed grade, raw resistance and high speed without inventing legacy data',()=>{
+ const s=session();R.beginRecording(s,t);R.captureRecord(s,{speed:100,speedSource:'trainer',trainerDistance:1000,trainerDistanceSource:'trainer',trainerResistance:-20,trainerResistanceSource:'trainer',grade:-.01,gradeSource:'trainerSimulation'},t);
+ const record=R.readRecording(JSON.parse(JSON.stringify(s.recording)),3).records[0];assert.equal(record.speed,100);assert.equal(record.grade,-.01);assert.equal(record.trainerResistance,-20);assert.equal(record.distance,0);assert.equal(record.distanceSource,'trainer');
+ const legacy=JSON.parse(JSON.stringify(s.recording));legacy.records=[{timestamp:t,stage:0,speed:10}];const old=R.readRecording(legacy,3).records[0];assert.equal(old.distance,undefined);assert.equal(old.grade,undefined);
+ const bad=JSON.parse(JSON.stringify(s.recording));Object.assign(bad.records[0],{grade:400,trainerDistance:-1,distance:'123',distanceDelta:-1,distanceStartAt:t+1});const clean=R.readRecording(bad,3).records[0];for(const key of ['grade','trainerDistance','distance','distanceDelta','distanceStartAt'])assert.equal(clean[key],null);
+});
+test('cached pre-start and pre-resume telemetry cannot add warmup or paused distance',()=>{
+ const s=session();R.beginRecording(s,t);
+ const take=(second,raw,at)=>{R.captureRecord(s,{trainerDistance:raw,trainerDistanceAt:at,speed:10,speedAt:at},t+second*1000);return s.recording.records.at(-1)};
+ assert.equal(take(0,1000,t-1000).distance,null);assert.equal(take(1,1100,t+1000).distance,0);assert.equal(take(2,1110,t+2000).distance,10);
+ R.stopRecording(s,t+2000);R.beginRecording(s,t+3000);
+ assert.equal(take(3,1110,t+2000).distance,null);assert.equal(take(4,1200,t+4000).distance,10);assert.equal(take(5,1210,t+5000).distance,20);
+ assert.equal('trainerDistanceAt' in s.recording.records[0],false);assert.equal('speedAt' in s.recording.records[0],false);
+});

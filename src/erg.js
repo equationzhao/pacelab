@@ -24,6 +24,7 @@ function createController(service,onChange=()=>{},options={}){
   if(disposed)return Promise.reject(cancelled());
   if(state.requiresReconnect)return Promise.reject(Error('ERG 控制响应超时，请在设备端停止负载后重新连接'));
   if(pending)return Promise.reject(Error('上一条 ERG 指令尚未完成'));
+  if(opcode===5)options.onPowerTarget?.();
   return new Promise((resolve,reject)=>{
    const fail=error=>{if(pending===command)settleCommand(error)};
    const command={opcode,resolve,reject,timer:null,written:false,acknowledged:false,resultError:null};
@@ -47,6 +48,7 @@ function createController(service,onChange=()=>{},options={}){
  }
  function handleStatus(event){
   const value=event.target.value;if(!value.byteLength)return;const opcode=value.getUint8(0);
+  options.onStatus?.(value);
   if(opcode===4)machineRunning=true;
   let error;
   if(opcode===0xff){hasControl=false;error=Error('ERG 控制权已丢失，请在设备端确认停止，关闭其他控制软件后重试')}
